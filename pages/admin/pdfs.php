@@ -327,15 +327,15 @@ $filterQueryPrefix = http_build_query(array_filter([
 
             <div style="margin-bottom:12px;">
                 <label style="display:block;font-weight:600;margin-bottom:4px;">
-                    <?= $lang === 'bn' ? 'Google Drive লিংক * (গোপন থাকবে)' : 'Google Drive URL * (Hidden server-side)' ?>
+                    <?= $lang === 'bn' ? 'Google Drive লিংক (ঐচ্ছিক — কম্পিউটার থেকে পৃষ্ঠা প্রস্তুত করলে খালি রাখা যাবে)' : 'Google Drive URL (Optional — hidden server-side)' ?>
                 </label>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                    <input type="text" inputmode="url" id="pdf-drive-link" name="drive_link" class="bx-input" style="flex:1 1 220px;min-width:0;" required value="<?= e((string) ($editPdf['drive_link'] ?? '')) ?>" placeholder="https://drive.google.com/file/d/FILE_ID/view?usp=sharing">
+                    <input type="text" inputmode="url" id="pdf-drive-link" name="drive_link" class="bx-input" style="flex:1 1 220px;min-width:0;" value="<?= e((string) ($editPdf['drive_link'] ?? '')) ?>" placeholder="https://drive.google.com/file/d/FILE_ID/view?usp=sharing (optional)">
                     <button type="button" id="btn-test-drive" class="bx-btn bx-btn-outline" data-endpoint="<?= e(url('/admin/api/test-drive-link')) ?>">
                         <?= $lang === 'bn' ? 'লিংক পরীক্ষা' : 'Test Link' ?>
                     </button>
                 </div>
-                <small id="drive-test-result" style="display:block;margin-top:5px;font-weight:600;"></small>
+                <small id="drive-test-result" style="display:block;margin-top:6px;font-weight:600;line-height:1.45;"></small>
             </div>
 
             <div class="bx-grid-3" style="gap:12px;margin-bottom:12px;">

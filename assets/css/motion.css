@@ -137,19 +137,32 @@
     100% { transform: scale(1); }
 }
 
-/* 5. Button Ripple Effect */
-.bx-btn {
+/* 5. Button Ripple Effect (Clipped strictly to matching border-radius) */
+.bx-btn,
+.bx-pill-btn:not(.bx-notif-btn),
+.bx-wish-btn,
+.bx-kebab-btn,
+.bx-search-bar button,
+.bx-chart-range-btn {
     position: relative;
     overflow: hidden;
+    isolation: isolate;
 }
 .bx-ripple {
     position: absolute;
     border-radius: 50%;
-    background: rgba(255, 255, 255, 0.35);
+    background: currentColor;
     transform: scale(0);
-    opacity: 0.9;
+    opacity: 0.24;
     pointer-events: none;
     animation: bxRipple 0.55s ease-out forwards;
+}
+.bx-btn-primary .bx-ripple,
+.bx-search-bar button .bx-ripple,
+.bx-drawer-lang-btn .bx-ripple,
+.bx-chart-range-btn.active .bx-ripple {
+    background: rgba(255, 255, 255, 0.36);
+    opacity: 0.9;
 }
 @keyframes bxRipple {
     to { transform: scale(3.2); opacity: 0; }

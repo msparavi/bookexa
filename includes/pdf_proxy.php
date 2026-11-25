@@ -183,121 +183,450 @@ function track_fast_sequential_burst(int $userId, int $itemId, int $pageNum): vo
     $_SESSION['bx_page_burst'][$itemId] = ['events' => $events, 'last_alert' => $lastAlert];
 }
 
-/**
- * Reliable Google Drive fetch with protected cache, large-file confirmation parsing, retries & friendly errors.
- * Never returns or logs raw Drive URLs or file IDs.
- */
-function fetch_source_pdf_secure(string $source): array
+function parse_php_size_bytes(string $val): int
 {
+    $val = trim($val);
+    if ($val === '' || $val === '-1') {
+        return -1;
+    }
+    $last = strtolower($val[strlen($val) - 1]);
+    $num = (int) $val;
+    switch ($last) {
+        case 'g':
+            $num *= 1024;
+            // fall through
+        case 'm':
+            $num *= 1024;
+            // fall through
+        case 'k':
+            $num *= 1024;
+    }
+    return max(0, $num);
+}
+
+function server_safe_pdf_limits(): array
+{
+    $memStr = (string) ini_get('memory_limit');
+    $memBytes = parse_php_size_bytes($memStr);
+    $maxExec = (int) ini_get('max_execution_time');
+    $recWarnMb = 100.0;
+    if ($memBytes > 0) {
+        // Streaming uses tiny RAM, but PHP/Apache reverse-proxy & browser PDF.js buffers benefit from caution above ~75% of memory_limit or 100 MB
+        $memMb = $memBytes / 1048576;
+        $recWarnMb = min(100.0, max(25.0, round($memMb * 0.65, 1)));
+    }
+    return [
+        'memory_limit_raw'   => $memStr !== '' ? $memStr : '-1',
+        'memory_limit_bytes' => $memBytes,
+        'max_execution_time' => $maxExec,
+        'recommended_warn_mb'=> $recWarnMb,
+    ];
+}
+
+function drive_api_key(): string
+{
+    return trim((string) site_setting('google_drive_api_key', ''));
+}
+
+function drive_redact_secret(string $text): string
+{
+    $key = drive_api_key();
+    if ($key !== '') {
+        $text = str_replace([$key, rawurlencode($key)], '[REDACTED]', $text);
+    }
+    return $text;
+}
+
+function log_pdf_source_admin_error(int $userId, int $itemId, bool $isSample, string $realReason): void
+{
+    $safeReason = drive_redact_secret($realReason);
+    log_reading_event($userId, $itemId, $isSample, 'source_fetch_error', $safeReason);
+    try {
+        db_exec(
+            'INSERT INTO security_logs (event_type, identifier, ip_address, details) VALUES (?, ?, ?, ?)',
+            ['pdf_source_error', "item#{$itemId}/user#{$userId}", client_ip(), substr($safeReason, 0, 250)]
+        );
+    } catch (Throwable $e) {
+    }
+}
+
+/**
+ * Counts PDF pages from disk without loading the entire PDF into PHP memory.
+ */
+function count_pdf_pages_fast_file(string $filePath): ?int
+{
+    if (!is_file($filePath)) {
+        return null;
+    }
+    $size = (int) @filesize($filePath);
+    if ($size <= 0) {
+        return null;
+    }
+    $fh = @fopen($filePath, 'rb');
+    if (!$fh) {
+        return null;
+    }
+
+    $maxCount = 0;
+    $leafMatches = 0;
+    $overlap = '';
+    $chunkSize = 262144; // 256 KB streaming chunks
+
+    // For massive files (> 180 MB), scan head + tail first for /Type /Pages /Count N before full scan
+    if ($size > 180 * 1024 * 1024) {
+        $head = (string) fread($fh, 524288);
+        fseek($fh, max(0, $size - 524288));
+        $tail = (string) fread($fh, 524288);
+        fclose($fh);
+        foreach ([$head, $tail] as $buf) {
+            if (preg_match_all('/\/Type\s*\/Pages\b[^>]*\/Count\s+(\d+)|\/Count\s+(\d+)[^>]*\/Type\s*\/Pages\b/s', $buf, $m, PREG_SET_ORDER)) {
+                foreach ($m as $hit) {
+                    $c = (int) ($hit[1] !== '' ? $hit[1] : $hit[2]);
+                    if ($c > $maxCount) {
+                        $maxCount = $c;
+                    }
+                }
+            }
+        }
+        return $maxCount > 0 ? $maxCount : null;
+    }
+
+    while (!feof($fh)) {
+        $chunk = fread($fh, $chunkSize);
+        if ($chunk === false || $chunk === '') {
+            break;
+        }
+        $buf = $overlap . $chunk;
+        if (preg_match_all('/\/Type\s*\/Pages\b[^>]{0,300}\/Count\s+(\d+)|\/Count\s+(\d+)[^>]{0,300}\/Type\s*\/Pages\b/s', $buf, $m, PREG_SET_ORDER)) {
+            foreach ($m as $hit) {
+                $c = (int) ($hit[1] !== '' ? $hit[1] : $hit[2]);
+                if ($c > $maxCount) {
+                    $maxCount = $c;
+                }
+            }
+        }
+        if (preg_match_all('/\/Type\s*\/Page(?!s)\b/', $buf, $pm)) {
+            $leafMatches += count($pm[0]);
+        }
+        $overlap = substr($buf, -512);
+    }
+    fclose($fh);
+
+    if ($maxCount > 0) {
+        return $maxCount;
+    }
+    return $leafMatches > 0 ? $leafMatches : null;
+}
+
+/**
+ * Streams a remote URL directly to a local file via CURLOPT_WRITEFUNCTION, keeping PHP memory tiny.
+ */
+function curl_stream_download_to_file(string $url, string $destPath, ?string $cookieFile = null, int $connectTimeout = 15): array
+{
+    $fp = @fopen($destPath, 'wb');
+    if (!$fp) {
+        return ['ok' => false, 'http_code' => 0, 'content_type' => '', 'bytes' => 0, 'head' => '', 'errno' => -1, 'error' => 'Cannot open temp file'];
+    }
+
+    $headBuf = '';
+    $written = 0;
+    $ch = curl_init($url);
+    $opts = [
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS      => 7,
+        CURLOPT_CONNECTTIMEOUT => $connectTimeout,
+        CURLOPT_TIMEOUT        => 0,
+        CURLOPT_LOW_SPEED_LIMIT=> 1024,
+        CURLOPT_LOW_SPEED_TIME => 60,
+        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+        CURLOPT_SSL_VERIFYPEER => true,
+        CURLOPT_WRITEFUNCTION  => function ($chHandle, string $data) use ($fp, &$headBuf, &$written): int {
+            $len = strlen($data);
+            $written += $len;
+            $w = @fwrite($fp, $data);
+            if ($w === false) {
+                return 0;
+            }
+            $headCap = str_starts_with(ltrim($headBuf . $data), '%PDF-') ? 4096 : 262144;
+            if (strlen($headBuf) < $headCap) {
+                $headBuf .= substr($data, 0, $headCap - strlen($headBuf));
+            }
+            return $len;
+        },
+    ];
+    if ($cookieFile !== null) {
+        $opts[CURLOPT_COOKIEJAR]  = $cookieFile;
+        $opts[CURLOPT_COOKIEFILE] = $cookieFile;
+    }
+    curl_setopt_array($ch, $opts);
+    $execOk = curl_exec($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $contentType = strtolower((string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE));
+    $errno = curl_errno($ch);
+    $cErr = curl_error($ch);
+    curl_close($ch);
+    fclose($fp);
+
+    return [
+        'ok'           => ($execOk !== false && $errno === 0),
+        'http_code'    => $httpCode,
+        'content_type' => $contentType,
+        'bytes'        => $written,
+        'head'         => $headBuf,
+        'errno'        => $errno,
+        'error'        => $cErr,
+    ];
+}
+
+function pdf_file_starts_with_magic(string $filePath): bool
+{
+    $fh = @fopen($filePath, 'rb');
+    if (!$fh) {
+        return false;
+    }
+    $head = (string) fread($fh, 16);
+    fclose($fh);
+    return str_starts_with(ltrim($head), '%PDF-');
+}
+
+function classify_drive_html_failure(int $httpCode, string $contentType, string $headBuf): array
+{
+    $lower = strtolower($headBuf);
+    if ($httpCode === 429 || str_contains($lower, 'quota exceeded') || str_contains($lower, 'too many users have viewed') || str_contains($lower, 'download quota')) {
+        return [
+            'ok'           => false,
+            'code'         => 'PDF_TEMP_BUSY',
+            'reason_code'  => 'QUOTA_EXCEEDED',
+            'message'      => 'This document is temporarily busy. Please try again in a few minutes.',
+            'admin_reason' => 'Google Drive download quota exceeded (HTTP ' . $httpCode . ')',
+            'http_code'    => $httpCode,
+        ];
+    }
+    if ($httpCode === 401 || $httpCode === 403 || str_contains($lower, 'you need access') || str_contains($lower, 'request access') || str_contains($lower, 'accounts.google.com')) {
+        return [
+            'ok'           => false,
+            'code'         => 'PDF_UNAVAILABLE',
+            'reason_code'  => 'NOT_PUBLIC',
+            'message'      => 'This document is temporarily unavailable. Please contact support.',
+            'admin_reason' => 'Google Drive file not shared publicly / access denied (HTTP ' . $httpCode . ')',
+            'http_code'    => $httpCode,
+        ];
+    }
+    if ($httpCode === 404) {
+        return [
+            'ok'           => false,
+            'code'         => 'PDF_UNAVAILABLE',
+            'reason_code'  => 'NOT_FOUND',
+            'message'      => 'Requested document could not be found right now.',
+            'admin_reason' => 'Google Drive file not found or removed (HTTP 404)',
+            'http_code'    => 404,
+        ];
+    }
+    return [
+        'ok'           => false,
+        'code'         => 'PDF_INVALID',
+        'reason_code'  => 'NOT_A_PDF',
+        'message'      => 'Could not open this document right now. Please try again shortly.',
+        'admin_reason' => 'Downloaded content is not a valid PDF (HTTP ' . $httpCode . ', MIME ' . ($contentType ?: 'unknown') . ')',
+        'http_code'    => $httpCode,
+    ];
+}
+
+/**
+ * Reliable streaming source PDF resolver: saves or resolves directly to a local file without full-file PHP buffering.
+ * Tries Official Drive API v3 (if key configured) before falling back to usercontent + large-file confirm form parsing.
+ */
+function fetch_source_pdf_to_file(string $source, ?array $testOverride = null): array
+{
+    @set_time_limit(0);
+
     if (str_starts_with($source, 'local://')) {
         $filename = basename(substr($source, 8));
         $localPath = APP_ROOT . '/storage/demo/' . $filename;
         if (!is_file($localPath)) {
-            return ['ok' => false, 'code' => 'NOT_FOUND', 'message' => 'Requested document is unavailable.'];
+            return [
+                'ok'           => false,
+                'code'         => 'NOT_FOUND',
+                'reason_code'  => 'NOT_FOUND',
+                'message'      => 'Requested document is unavailable.',
+                'admin_reason' => 'Local demo file missing: ' . $filename,
+            ];
         }
-        $data = file_get_contents($localPath);
-        return $data !== false
-            ? ['ok' => true, 'bytes' => $data]
-            : ['ok' => false, 'code' => 'READ_ERROR', 'message' => 'Could not read document.'];
+        return [
+            'ok'             => true,
+            'path'           => $localPath,
+            'size'           => (int) filesize($localPath),
+            'method'         => 'local',
+            'confirm_needed' => false,
+            'unlink_after'   => false,
+        ];
     }
 
     $fileId = extract_drive_file_id($source);
     if ($fileId === null) {
-        return ['ok' => false, 'code' => 'INVALID_SOURCE', 'message' => 'Document source is misconfigured.'];
+        return [
+            'ok'           => false,
+            'code'         => 'INVALID_SOURCE',
+            'reason_code'  => 'INVALID_URL',
+            'message'      => 'This document is temporarily unavailable.',
+            'admin_reason' => 'Invalid or empty document source URL',
+        ];
     }
 
-    // Protected server-side cache (hashed filename, never exposes Drive ID)
     $cacheEnabled = (bool) app_config('security.pdf_cache_enabled', true);
     $cacheTtl     = (int) app_config('security.pdf_cache_ttl', 21600);
     $cacheDir     = APP_ROOT . '/storage/cache';
-    $secret       = (string) app_config('security.app_secret', 'bookexa_cache');
-    $cachePath    = $cacheDir . '/' . hash_hmac('sha256', $fileId, $secret) . '.bin';
+    if (!is_dir($cacheDir)) {
+        @mkdir($cacheDir, 0755, true);
+    }
+    $secret    = (string) app_config('security.app_secret', 'bookexa_cache');
+    $cachePath = $cacheDir . '/' . hash_hmac('sha256', $fileId, $secret) . '.bin';
 
-    if ($cacheEnabled && is_file($cachePath) && (time() - filemtime($cachePath)) < $cacheTtl) {
-        $cached = @file_get_contents($cachePath);
-        if ($cached !== false && str_starts_with(ltrim($cached), '%PDF-')) {
-            return ['ok' => true, 'bytes' => $cached];
+    if (empty($testOverride['bypass_cache']) && $cacheEnabled && is_file($cachePath) && (time() - (int) @filemtime($cachePath)) < $cacheTtl) {
+        if (pdf_file_starts_with_magic($cachePath)) {
+            return [
+                'ok'             => true,
+                'path'           => $cachePath,
+                'size'           => (int) filesize($cachePath),
+                'method'         => 'cache',
+                'confirm_needed' => false,
+                'unlink_after'   => false,
+            ];
         }
     }
 
     if (!function_exists('curl_init')) {
-        return ['ok' => false, 'code' => 'CURL_MISSING', 'message' => 'Server cURL extension is required.'];
+        return [
+            'ok'           => false,
+            'code'         => 'SERVER_ERROR',
+            'reason_code'  => 'CURL_MISSING',
+            'message'      => 'Document service temporarily unavailable.',
+            'admin_reason' => 'PHP cURL extension is disabled on this server',
+        ];
     }
 
-    $lastError = ['ok' => false, 'code' => 'FETCH_FAILED', 'message' => 'Could not fetch PDF right now. Please try again shortly.'];
+    $finalizeSuccess = static function (string $tmpPart, string $method, bool $confirmNeeded) use ($cacheEnabled, $cachePath): array {
+        $size = (int) @filesize($tmpPart);
+        if ($cacheEnabled) {
+            if (@rename($tmpPart, $cachePath)) {
+                return [
+                    'ok'             => true,
+                    'path'           => $cachePath,
+                    'size'           => $size,
+                    'method'         => $method,
+                    'confirm_needed' => $confirmNeeded,
+                    'unlink_after'   => false,
+                ];
+            }
+        }
+        return [
+            'ok'             => true,
+            'path'           => $tmpPart,
+            'size'           => $size,
+            'method'         => $method,
+            'confirm_needed' => $confirmNeeded,
+            'unlink_after'   => true,
+        ];
+    };
 
-    for ($attempt = 1; $attempt <= 3; $attempt++) {
-        if ($attempt > 1) {
-            usleep(400000 * ($attempt - 1)); // 400ms, 800ms backoff
+    $apiFailNote = '';
+    // 1. Official Google Drive API v3 mode (when optional API key is set)
+    $apiKey = isset($testOverride['api_key']) ? trim((string) $testOverride['api_key']) : drive_api_key();
+    if ($apiKey !== '') {
+        $apiBase = rtrim((string) ($testOverride['api_base'] ?? 'https://www.googleapis.com/drive/v3/files'), '/');
+        $apiUrl = $apiBase . '/' . rawurlencode($fileId) . '?alt=media&supportsAllDrives=true&key=' . rawurlencode($apiKey);
+        $tmpPart = $cacheDir . '/gd_api_' . bin2hex(random_bytes(8)) . '.part';
+        $dl = curl_stream_download_to_file($apiUrl, $tmpPart);
+
+        $isPdf = $dl['ok'] && ($dl['http_code'] >= 200 && $dl['http_code'] < 300)
+            && (str_starts_with(ltrim($dl['head']), '%PDF-') || (str_contains($dl['content_type'], 'application/pdf') && $dl['bytes'] > 100));
+        if ($isPdf) {
+            return $finalizeSuccess($tmpPart, 'api', false);
         }
 
+        $apiJson = json_decode($dl['head'], true);
+        $apiMsg = (string) ($apiJson['error']['message'] ?? '');
+        $apiFailNote = 'Drive API HTTP ' . $dl['http_code'] . ($apiMsg !== '' ? " ({$apiMsg})" : ($dl['error'] !== '' ? ' (' . $dl['error'] . ')' : ''));
+        @unlink($tmpPart);
+    }
+
+    // 2. Fallback: Drive usercontent / uc direct + large-file confirmation streaming
+    $lastError = [
+        'ok'           => false,
+        'code'         => 'FETCH_FAILED',
+        'reason_code'  => 'UNREACHABLE',
+        'message'      => 'Could not load this document right now. Please try again shortly.',
+        'admin_reason' => $apiFailNote !== '' ? ($apiFailNote . '; fallback also failed') : 'Remote download failed after retries',
+    ];
+
+    $defaultUrls = [
+        'https://drive.usercontent.google.com/download?id=' . rawurlencode($fileId) . '&export=download&confirm=t',
+        'https://drive.google.com/uc?export=download&confirm=t&id=' . rawurlencode($fileId),
+    ];
+    $urls = !empty($testOverride['download_urls']) && is_array($testOverride['download_urls'])
+        ? $testOverride['download_urls']
+        : $defaultUrls;
+
+    for ($attempt = 1; $attempt <= 2; $attempt++) {
+        if ($attempt > 1) {
+            usleep(450000);
+        }
         $cookieFile = tempnam(sys_get_temp_dir(), 'bx_gd_');
-        $urls = [
-            'https://drive.usercontent.google.com/download?id=' . rawurlencode($fileId) . '&export=download&confirm=t',
-            'https://drive.google.com/uc?export=download&confirm=t&id=' . rawurlencode($fileId),
-        ];
 
         foreach ($urls as $targetUrl) {
-            $ch = curl_init($targetUrl);
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_FOLLOWLOCATION => true,
-                CURLOPT_MAXREDIRS      => 6,
-                CURLOPT_TIMEOUT        => 45,
-                CURLOPT_CONNECTTIMEOUT => 12,
-                CURLOPT_COOKIEJAR      => $cookieFile,
-                CURLOPT_COOKIEFILE     => $cookieFile,
-                CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
-                CURLOPT_SSL_VERIFYPEER => true,
-            ]);
-            $body = curl_exec($ch);
-            $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $contentType = strtolower((string) curl_getinfo($ch, CURLINFO_CONTENT_TYPE));
-            $curlErrNo = curl_errno($ch);
-            curl_close($ch);
+            $tmpPart = $cacheDir . '/gd_dl_' . bin2hex(random_bytes(8)) . '.part';
+            $dl = curl_stream_download_to_file($targetUrl, $tmpPart, $cookieFile ?: null);
 
-            if ($body === false || $curlErrNo !== 0) {
-                $lastError = ['ok' => false, 'code' => 'TIMEOUT', 'message' => 'Connection timed out while loading the PDF. Please retry.'];
+            if (!$dl['ok']) {
+                @unlink($tmpPart);
+                $lastError = [
+                    'ok'           => false,
+                    'code'         => 'TIMEOUT',
+                    'reason_code'  => 'TIMEOUT',
+                    'message'      => 'Connection timed out while preparing document pages. Please retry.',
+                    'admin_reason' => 'cURL transfer error (' . $dl['errno'] . '): ' . $dl['error'],
+                ];
                 continue;
             }
 
-            // Valid PDF bytes received
-            if (str_starts_with(ltrim($body), '%PDF-') || (str_contains($contentType, 'application/pdf') && strlen($body) > 100)) {
+            if (str_starts_with(ltrim($dl['head']), '%PDF-') || (str_contains($dl['content_type'], 'application/pdf') && $dl['bytes'] > 100)) {
                 if ($cookieFile && file_exists($cookieFile)) {
                     @unlink($cookieFile);
                 }
-                if ($cacheEnabled) {
-                    if (!is_dir($cacheDir)) {
-                        @mkdir($cacheDir, 0755, true);
-                    }
-                    $tmpCache = $cachePath . '.' . bin2hex(random_bytes(4));
-                    if (@file_put_contents($tmpCache, $body) !== false) {
-                        @rename($tmpCache, $cachePath);
-                    }
-                }
-                return ['ok' => true, 'bytes' => $body];
+                return $finalizeSuccess($tmpPart, 'usercontent', false);
             }
 
-            // Parse Google Drive HTML responses (quota exceeded, permission denied, or large-file confirm form)
-            $lowerBody = strtolower($body);
-            if (str_contains($lowerBody, 'quota exceeded') || str_contains($lowerBody, 'too many users have viewed') || $httpCode === 429) {
-                if ($cookieFile && file_exists($cookieFile)) {
-                    @unlink($cookieFile);
+            // Inspect small HTML body header before discarding temp file
+            $headBuf = $dl['head'];
+            @unlink($tmpPart);
+
+            $lowerBody = strtolower($headBuf);
+            if ($dl['http_code'] === 429 || $dl['http_code'] === 401 || $dl['http_code'] === 403 || $dl['http_code'] === 404
+                || str_contains($lowerBody, 'quota exceeded') || str_contains($lowerBody, 'too many users have viewed')
+                || str_contains($lowerBody, 'you need access') || str_contains($lowerBody, 'accounts.google.com')) {
+                $classified = classify_drive_html_failure($dl['http_code'], $dl['content_type'], $headBuf);
+                if ($apiFailNote !== '') {
+                    $classified['admin_reason'] = $apiFailNote . '; ' . $classified['admin_reason'];
                 }
-                return ['ok' => false, 'code' => 'DRIVE_QUOTA', 'message' => 'High demand on document storage right now. Please try again in a few minutes.'];
-            }
-            if ($httpCode === 401 || $httpCode === 403 || str_contains($lowerBody, 'you need access') || str_contains($lowerBody, 'accounts.google.com')) {
-                if ($cookieFile && file_exists($cookieFile)) {
-                    @unlink($cookieFile);
+                $lastError = $classified;
+                if (in_array($classified['reason_code'], ['QUOTA_EXCEEDED', 'NOT_PUBLIC', 'NOT_FOUND'], true)) {
+                    if ($cookieFile && file_exists($cookieFile)) {
+                        @unlink($cookieFile);
+                    }
+                    return $lastError;
                 }
-                return ['ok' => false, 'code' => 'DRIVE_ACCESS', 'message' => 'This PDF is temporarily unavailable. Please contact support.'];
+                continue;
             }
 
             // Large-file virus scan confirmation HTML form parsing
-            if (str_contains($contentType, 'text/html')) {
+            if (str_contains($dl['content_type'], 'text/html') || str_contains($lowerBody, '<form')) {
                 $confirmUrl = null;
-                if (preg_match('/<form[^>]+action=["\']([^"\']+)["\'][^>]*>(.*?)<\/form>/is', $body, $fm)) {
+                if (preg_match('/<form[^>]+action=["\']([^"\']+)["\'][^>]*>(.*?)<\/form>/is', $headBuf, $fm)) {
                     $actionUrl = html_entity_decode($fm[1], ENT_QUOTES);
+                    if (str_starts_with($actionUrl, '/')) {
+                        $pu = parse_url($targetUrl);
+                        $actionUrl = ($pu['scheme'] ?? 'https') . '://' . ($pu['host'] ?? 'drive.usercontent.google.com') . (!empty($pu['port']) ? ':' . $pu['port'] : '') . $actionUrl;
+                    }
                     $params = [];
                     if (preg_match_all('/<input[^>]+name=["\']([^"\']+)["\'][^>]+value=["\']([^"\']*)["\']/is', $fm[2], $inputs, PREG_SET_ORDER)) {
                         foreach ($inputs as $inp) {
@@ -308,38 +637,25 @@ function fetch_source_pdf_secure(string $source): array
                         $sep = str_contains($actionUrl, '?') ? '&' : '?';
                         $confirmUrl = $actionUrl . $sep . http_build_query($params);
                     }
-                } elseif (preg_match('/confirm=([a-zA-Z0-9_-]+)/', $body, $cm)) {
+                } elseif (preg_match('/confirm=([a-zA-Z0-9_-]+)/', $headBuf, $cm)) {
                     $confirmUrl = 'https://drive.google.com/uc?export=download&confirm=' . rawurlencode($cm[1]) . '&id=' . rawurlencode($fileId);
                 }
 
                 if ($confirmUrl !== null) {
-                    $ch2 = curl_init($confirmUrl);
-                    curl_setopt_array($ch2, [
-                        CURLOPT_RETURNTRANSFER => true,
-                        CURLOPT_FOLLOWLOCATION => true,
-                        CURLOPT_MAXREDIRS      => 6,
-                        CURLOPT_TIMEOUT        => 60,
-                        CURLOPT_COOKIEJAR      => $cookieFile,
-                        CURLOPT_COOKIEFILE     => $cookieFile,
-                        CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
-                    ]);
-                    $body2 = curl_exec($ch2);
-                    curl_close($ch2);
-                    if ($body2 !== false && str_starts_with(ltrim($body2), '%PDF-')) {
+                    $tmpConfirm = $cacheDir . '/gd_cf_' . bin2hex(random_bytes(8)) . '.part';
+                    $dl2 = curl_stream_download_to_file($confirmUrl, $tmpConfirm, $cookieFile ?: null);
+                    $isPdf2 = $dl2['ok'] && (str_starts_with(ltrim($dl2['head']), '%PDF-') || (str_contains($dl2['content_type'], 'application/pdf') && $dl2['bytes'] > 100));
+                    if ($isPdf2) {
                         if ($cookieFile && file_exists($cookieFile)) {
                             @unlink($cookieFile);
                         }
-                        if ($cacheEnabled) {
-                            if (!is_dir($cacheDir)) {
-                                @mkdir($cacheDir, 0755, true);
-                            }
-                            $tmpCache = $cachePath . '.' . bin2hex(random_bytes(4));
-                            if (@file_put_contents($tmpCache, $body2) !== false) {
-                                @rename($tmpCache, $cachePath);
-                            }
-                        }
-                        return ['ok' => true, 'bytes' => $body2];
+                        return $finalizeSuccess($tmpConfirm, 'confirm', true);
                     }
+                    $head2 = $dl2['head'];
+                    @unlink($tmpConfirm);
+                    $lastError = classify_drive_html_failure($dl2['http_code'], $dl2['content_type'], $head2);
+                } else {
+                    $lastError = classify_drive_html_failure($dl['http_code'], $dl['content_type'], $headBuf);
                 }
             }
         }
@@ -349,7 +665,111 @@ function fetch_source_pdf_secure(string $source): array
         }
     }
 
+    if ($apiFailNote !== '' && !str_contains($lastError['admin_reason'] ?? '', $apiFailNote)) {
+        $lastError['admin_reason'] = $apiFailNote . '; ' . ($lastError['admin_reason'] ?? 'Fallback failed');
+    }
     return $lastError;
+}
+
+/**
+ * Streams a local PDF file to the client in 64 KB chunks with HTTP Range (206 Partial Content) support.
+ */
+function stream_pdf_file_response(string $filePath, bool $unlinkAfter = false): never
+{
+    @set_time_limit(0);
+    while (ob_get_level() > 0) {
+        @ob_end_clean();
+    }
+
+    $size = (int) @filesize($filePath);
+    $start = 0;
+    $end = max(0, $size - 1);
+    $isPartial = false;
+
+    $rangeHdr = trim((string) ($_SERVER['HTTP_RANGE'] ?? ''));
+    if ($rangeHdr !== '' && $size > 0) {
+        if (!preg_match('/^bytes=(\d*)-(\d*)$/i', $rangeHdr, $rm)) {
+            http_response_code(416);
+            header('Content-Range: bytes */' . $size);
+            if ($unlinkAfter) {
+                @unlink($filePath);
+            }
+            exit;
+        }
+        if ($rm[1] === '' && $rm[2] === '') {
+            http_response_code(416);
+            header('Content-Range: bytes */' . $size);
+            if ($unlinkAfter) {
+                @unlink($filePath);
+            }
+            exit;
+        }
+        if ($rm[1] === '') {
+            // Suffix range: bytes=-N
+            $suffix = (int) $rm[2];
+            $start = max(0, $size - $suffix);
+            $end = $size - 1;
+        } else {
+            $start = (int) $rm[1];
+            $end = ($rm[2] !== '') ? min($size - 1, (int) $rm[2]) : ($size - 1);
+        }
+        if ($start > $end || $start >= $size || $end < 0) {
+            http_response_code(416);
+            header('Content-Range: bytes */' . $size);
+            if ($unlinkAfter) {
+                @unlink($filePath);
+            }
+            exit;
+        }
+        $isPartial = true;
+    }
+
+    $length = $size > 0 ? ($end - $start + 1) : 0;
+
+    if ($isPartial) {
+        http_response_code(206);
+        header('Content-Range: bytes ' . $start . '-' . $end . '/' . $size);
+    } else {
+        http_response_code(200);
+    }
+
+    header('Content-Type: application/pdf');
+    header('Content-Disposition: inline; filename="bookexa-protected.pdf"');
+    header('Accept-Ranges: bytes');
+    header('Content-Length: ' . $length);
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Robots-Tag: noindex, nofollow');
+
+    $fp = @fopen($filePath, 'rb');
+    if ($fp) {
+        if ($start > 0) {
+            fseek($fp, $start);
+        }
+        $remaining = $length;
+        $chunkSize = 65536; // 64 KB chunks — constant low PHP memory
+        while ($remaining > 0 && !feof($fp)) {
+            $toRead = min($chunkSize, $remaining);
+            $buf = fread($fp, $toRead);
+            if ($buf === false || $buf === '') {
+                break;
+            }
+            echo $buf;
+            $remaining -= strlen($buf);
+            flush();
+            if (connection_aborted() !== 0) {
+                break;
+            }
+        }
+        fclose($fp);
+    }
+
+    if ($unlinkAfter) {
+        @unlink($filePath);
+    }
+    exit;
 }
 
 /**
@@ -565,7 +985,11 @@ function handle_stream_pdf(): never
         exit;
     }
 
-    if ($tok['used_at'] !== null) {
+    $rangeHdr = trim((string) ($_SERVER['HTTP_RANGE'] ?? ''));
+    $isRangeReq = $rangeHdr !== '';
+    $isRangeSession = $isRangeReq && !empty($_SESSION['bx_range_tokens'][$tokenHash]);
+
+    if ($tok['used_at'] !== null && !$isRangeSession) {
         log_reading_event($uid, (int) $tok['item_id'], (bool) $tok['is_sample'], 'token_reuse_attempt', 'Attempted reuse of JTI ' . $tok['jti']);
         http_response_code(403);
         header('Content-Type: application/json');
@@ -582,14 +1006,19 @@ function handle_stream_pdf(): never
         exit;
     }
 
-    // Atomically mark token as consumed (prevents parallel reuse)
-    $consumed = db_exec('UPDATE reader_tokens SET used_at = NOW() WHERE id = ? AND used_at IS NULL', [(int) $tok['id']]);
-    if ($consumed !== 1) {
-        log_reading_event($uid, (int) $tok['item_id'], (bool) $tok['is_sample'], 'token_reuse_attempt', 'Concurrent reuse blocked');
-        http_response_code(403);
-        header('Content-Type: application/json');
-        echo json_encode(['error' => 'TOKEN_REUSED']);
-        exit;
+    // Atomically mark token as consumed (non-Range requests are strictly single-use; Range chunks share the session window)
+    if ($tok['used_at'] === null) {
+        $consumed = db_exec('UPDATE reader_tokens SET used_at = NOW() WHERE id = ? AND used_at IS NULL', [(int) $tok['id']]);
+        if ($consumed !== 1 && !$isRangeSession) {
+            log_reading_event($uid, (int) $tok['item_id'], (bool) $tok['is_sample'], 'token_reuse_attempt', 'Concurrent reuse blocked');
+            http_response_code(403);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => 'TOKEN_REUSED']);
+            exit;
+        }
+        if ($isRangeReq) {
+            $_SESSION['bx_range_tokens'][$tokenHash] = time();
+        }
     }
 
     $item = db_one('SELECT * FROM items WHERE id = ? AND is_active = 1 LIMIT 1', [(int) $tok['item_id']]);
@@ -617,55 +1046,84 @@ function handle_stream_pdf(): never
 
     log_reading_event($uid, (int) $item['id'], $isSample, 'stream_pdf', 'Token #' . $tok['id']);
 
-    // Server-side Sample Mode Enforcement
+    // Server-side Sample Mode Enforcement (never loads full huge files into RAM)
+    $srcPath = null;
+    $unlinkAfter = false;
     if ($isSample && !$canReadFull) {
         if (!empty($item['sample_drive_link'])) {
-            $fetched = fetch_source_pdf_secure((string) $item['sample_drive_link']);
-            $pdfBytes = $fetched['ok'] ? $fetched['bytes'] : null;
-        } else {
-            $fetched = fetch_source_pdf_secure((string) $item['drive_link']);
+            $fetched = fetch_source_pdf_to_file((string) $item['sample_drive_link']);
             if (!$fetched['ok']) {
+                log_pdf_source_admin_error($uid, (int) $item['id'], $isSample, (string) ($fetched['admin_reason'] ?? $fetched['message'] ?? 'Sample source error'));
                 http_response_code(502);
                 header('Content-Type: application/json');
-                echo json_encode(['error' => $fetched['code'], 'message' => $fetched['message']]);
+                echo json_encode(['error' => $fetched['code'] ?? 'PDF_UNAVAILABLE', 'message' => $fetched['message'] ?? 'Could not load document preview right now.']);
                 exit;
             }
-            $pdfBytes = slice_pdf_first_pages($fetched['bytes'], (int) $item['sample_pages']);
+            $srcPath = $fetched['path'];
+            $unlinkAfter = !empty($fetched['unlink_after']);
+        } else {
+            $fetched = fetch_source_pdf_to_file((string) ($item['drive_link'] ?? ''));
+            if (!$fetched['ok']) {
+                log_pdf_source_admin_error($uid, (int) $item['id'], $isSample, (string) ($fetched['admin_reason'] ?? $fetched['message'] ?? 'Source fetch error'));
+                http_response_code(502);
+                header('Content-Type: application/json');
+                echo json_encode(['error' => $fetched['code'] ?? 'PDF_UNAVAILABLE', 'message' => $fetched['message'] ?? 'Could not load document preview right now.']);
+                exit;
+            }
+            $fileSize = (int) ($fetched['size'] ?? @filesize($fetched['path']));
+            if ($fileSize > 24 * 1024 * 1024) {
+                if (!empty($fetched['unlink_after'])) {
+                    @unlink($fetched['path']);
+                }
+                log_pdf_source_admin_error($uid, (int) $item['id'], $isSample, 'Sample slice skipped cleanly: source file exceeds 24 MB memory-safe slice cap (' . round($fileSize / 1048576, 1) . ' MB)');
+                http_response_code(422);
+                header('Content-Type: application/json');
+                echo json_encode(['error' => 'SAMPLE_UNSUPPORTED', 'message' => 'Sample preview requires a dedicated preview PDF for this file.']);
+                exit;
+            }
+            $rawBytes = @file_get_contents($fetched['path']);
+            if (!empty($fetched['unlink_after'])) {
+                @unlink($fetched['path']);
+            }
+            $pdfBytes = $rawBytes !== false ? slice_pdf_first_pages($rawBytes, (int) $item['sample_pages']) : null;
             if ($pdfBytes === null) {
                 http_response_code(422);
                 header('Content-Type: application/json');
                 echo json_encode(['error' => 'SAMPLE_UNSUPPORTED', 'message' => 'Sample preview requires a dedicated preview PDF for this file.']);
                 exit;
             }
-        }
-    } else {
-        $fetched = fetch_source_pdf_secure((string) $item['drive_link']);
-        if (!$fetched['ok']) {
-            http_response_code(502);
-            header('Content-Type: application/json');
-            echo json_encode(['error' => $fetched['code'], 'message' => $fetched['message']]);
+            header('Content-Type: application/pdf');
+            header('Content-Disposition: inline; filename="bookexa-protected.pdf"');
+            header('Content-Length: ' . strlen($pdfBytes));
+            header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+            header('Pragma: no-cache');
+            header('Expires: 0');
+            header('X-Content-Type-Options: nosniff');
+            header('X-Robots-Tag: noindex, nofollow');
+            echo $pdfBytes;
             exit;
         }
-        $pdfBytes = $fetched['bytes'];
+    } else {
+        $fetched = fetch_source_pdf_to_file((string) ($item['drive_link'] ?? ''));
+        if (!$fetched['ok']) {
+            log_pdf_source_admin_error($uid, (int) $item['id'], $isSample, (string) ($fetched['admin_reason'] ?? $fetched['message'] ?? 'Source fetch error'));
+            http_response_code(502);
+            header('Content-Type: application/json');
+            echo json_encode(['error' => $fetched['code'] ?? 'PDF_UNAVAILABLE', 'message' => $fetched['message'] ?? 'Could not open this document right now. Please try again shortly.']);
+            exit;
+        }
+        $srcPath = $fetched['path'];
+        $unlinkAfter = !empty($fetched['unlink_after']);
     }
 
-    if ($pdfBytes === null) {
+    if (!$srcPath || !is_file($srcPath)) {
         http_response_code(502);
         header('Content-Type: application/json');
-        echo json_encode(['error' => 'PDF_UNAVAILABLE', 'message' => 'PDF could not be loaded.']);
+        echo json_encode(['error' => 'PDF_UNAVAILABLE', 'message' => 'This document is temporarily unavailable.']);
         exit;
     }
 
-    header('Content-Type: application/pdf');
-    header('Content-Disposition: inline; filename="bookexa-protected.pdf"');
-    header('Content-Length: ' . strlen($pdfBytes));
-    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-    header('Pragma: no-cache');
-    header('Expires: 0');
-    header('X-Content-Type-Options: nosniff');
-    header('X-Robots-Tag: noindex, nofollow');
-    echo $pdfBytes;
-    exit;
+    stream_pdf_file_response($srcPath, $unlinkAfter);
 }
 
 function handle_reader_heartbeat(): never

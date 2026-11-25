@@ -17,6 +17,7 @@
     --border: rgba(43, 47, 119, 0.14);
 
     --primary: #2B2F77;
+    --primary-rgb: 43, 47, 119;
     --primary-2: #3A3F99;
     --primary-ink: #FFFFFF;
 
@@ -90,6 +91,7 @@
     --border: rgba(182, 192, 220, 0.16);
 
     --primary: #8F98FF;
+    --primary-rgb: 143, 152, 255;
     --primary-2: #A5AEFF;
     --primary-ink: #0B1020;
 

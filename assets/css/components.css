@@ -2,7 +2,23 @@
    Bookexa Design System Components — Mobile-First Editorial 3D, Safe Areas
    ========================================================================== */
 
-*, *::before, *::after { box-sizing: border-box; }
+*, *::before, *::after {
+    box-sizing: border-box;
+    -webkit-tap-highlight-color: transparent;
+}
+
+a, button, [role="button"], input, select, summary, label {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+}
+
+button, .bx-btn, .bx-pill-btn, .bx-wish-btn, .bx-rbtn, .bx-kebab-btn, .bx-slider-arrow,
+.bx-pw-toggle, .bx-notif-mark-one, .bx-mobile-bottom-nav a, .bx-nav a, .bx-drawer-links a,
+.bx-star-opt, [data-modal-open] {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
 
 html {
     scroll-behavior: smooth;
@@ -65,20 +81,29 @@ img { height: auto; display: block; }
 button, input, select, textarea { font-family: inherit; }
 option { background: var(--surface); color: var(--text); }
 
+:focus:not(:focus-visible) {
+    outline: none;
+}
+
 :focus-visible {
-    outline: 3px solid var(--focus-ring);
+    outline: 2.5px solid var(--focus-ring);
     outline-offset: 2px;
-    box-shadow: 0 0 0 5px var(--focus-ring-glow);
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 43, 47, 119), 0.35);
+}
+.bx-folder-3d {
+    border-radius: var(--radius-md);
+    isolation: isolate;
 }
 .bx-folder-3d:focus-visible { outline: none; box-shadow: none; }
 .bx-folder-3d:focus-visible .bx-folder-face {
-    outline: 3px solid var(--focus-ring);
+    outline: 2.5px solid var(--focus-ring);
     outline-offset: 2px;
-    box-shadow: 0 0 0 5px var(--focus-ring-glow), var(--shadow-lg);
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 43, 47, 119), 0.35), var(--shadow-lg);
 }
 .bx-book-cover:focus-visible {
-    outline: 3px solid var(--focus-ring);
+    outline: 2.5px solid var(--focus-ring);
     outline-offset: -3px;
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 43, 47, 119), 0.35);
 }
 
 .bx-logo-exa { fill: var(--gold-text); transition: fill 0.25s ease; }
@@ -194,6 +219,9 @@ main, section, article, aside, .bx-card,
 
 .bx-nav { display: flex; align-items: center; gap: 4px; }
 .bx-nav a {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
     padding: 8px 14px;
     border-radius: var(--radius-pill);
     font-size: 0.94rem;
@@ -240,6 +268,10 @@ main, section, article, aside, .bx-card,
 .bx-search-bar input::placeholder { color: var(--text-muted); opacity: 1; }
 .bx-search-bar input:focus-visible { outline: none; box-shadow: none; }
 .bx-search-bar button {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
     border: none;
     background: var(--grad-indigo-teal);
     color: #FFFFFF;
@@ -251,11 +283,16 @@ main, section, article, aside, .bx-card,
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    transition: transform 0.16s var(--ease-spring);
 }
 
 .bx-header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .bx-pill-btn {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -271,7 +308,7 @@ main, section, article, aside, .bx-card,
     font-weight: 600;
     cursor: pointer;
     box-shadow: var(--shadow-sm);
-    transition: all 0.22s var(--ease-spring);
+    transition: transform 0.18s var(--ease-spring), border-color 0.2s, background-color 0.2s;
 }
 @media (hover: hover) and (pointer: fine) {
     .bx-pill-btn:hover { border-color: var(--primary); transform: translateY(-1px); }
@@ -328,6 +365,9 @@ main, section, article, aside, .bx-card,
 }
 .bx-drawer-links { display: flex; flex-direction: column; gap: 6px; }
 .bx-drawer-links a {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -351,10 +391,14 @@ main, section, article, aside, .bx-card,
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
 }
 .bx-mobile-bottom-nav a {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
     flex: 1;
     min-height: 44px;
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
-    font-size: 0.78rem; font-weight: 600; color: var(--text-muted); padding: 4px; border-radius: 12px;
+    font-size: 0.78rem; font-weight: 600; color: var(--text-muted); padding: 4px; border-radius: 14px;
+    transition: transform 0.16s var(--ease-spring), color 0.2s, background-color 0.2s;
 }
 .bx-mobile-bottom-nav a.active { color: var(--primary); }
 
@@ -388,6 +432,9 @@ main, section, article, aside, .bx-card,
    Buttons, Badges & Form Inputs
    ========================================================================== */
 .bx-btn {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -401,9 +448,9 @@ main, section, article, aside, .bx-card,
     cursor: pointer;
     word-break: normal;
     overflow-wrap: normal;
-    transition: all 0.24s var(--ease-spring);
+    transition: transform 0.18s var(--ease-spring), background-color 0.2s, border-color 0.2s, filter 0.2s, color 0.2s;
 }
-.bx-btn:active { transform: scale(0.97); }
+.bx-btn:active:not(:disabled) { transform: scale(0.96); }
 .bx-btn-primary {
     background: var(--grad-indigo-teal);
     color: #FFFFFF;
@@ -686,6 +733,9 @@ main, section, article, aside, .bx-card,
 
 .bx-book-cover {
     position: relative;
+    display: block;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    isolation: isolate;
     aspect-ratio: 2 / 3;
     max-height: 58vh;
     max-height: 58dvh;
@@ -722,13 +772,16 @@ main, section, article, aside, .bx-card,
     top: 8px; right: 8px; z-index: 3;
     width: 44px; height: 44px;
     border-radius: var(--radius-pill);
+    overflow: hidden;
+    isolation: isolate;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
     border: 1px solid rgba(20, 33, 61, 0.14);
     background: rgba(255, 255, 255, 0.94);
     color: #4A5572;
     display: inline-flex; align-items: center; justify-content: center;
     cursor: pointer;
     box-shadow: 0 4px 12px rgba(0,0,0,0.16);
-    transition: transform 0.2s, color 0.2s, background-color 0.25s;
+    transition: transform 0.18s var(--ease-spring), color 0.2s, background-color 0.25s;
 }
 [data-theme="dark"] .bx-wish-btn {
     background: rgba(18, 26, 51, 0.92);
@@ -794,9 +847,13 @@ main, section, article, aside, .bx-card,
 .bx-slider-dot.active::after { width: 28px; background: var(--gold); }
 .bx-slider-arrow {
     position: absolute; top: 50%; transform: translateY(-50%); z-index: 5;
-    width: 44px; height: 44px; border-radius: 999px; border: 1px solid rgba(251,246,236,0.28);
+    width: 44px; height: 44px; border-radius: var(--radius-pill);
+    overflow: hidden; isolation: isolate;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+    border: 1px solid rgba(251,246,236,0.28);
     background: rgba(11, 16, 32, 0.45); color: #FBF6EC; display: inline-flex; align-items: center; justify-content: center;
     cursor: pointer; backdrop-filter: blur(8px);
+    transition: transform 0.16s var(--ease-spring), background-color 0.2s;
 }
 .bx-slider-arrow.prev { left: 12px; }
 .bx-slider-arrow.next { right: 12px; }
@@ -873,8 +930,9 @@ main, section, article, aside, .bx-card,
 .bx-pw-toggle {
     position: absolute; right: 2px; top: 50%; transform: translateY(-50%);
     width: 44px; height: 44px; border: none; background: transparent;
-    color: var(--text-muted); border-radius: 10px; cursor: pointer;
+    color: var(--text-muted); border-radius: 12px; overflow: hidden; isolation: isolate; cursor: pointer;
     display: inline-flex; align-items: center; justify-content: center;
+    transition: transform 0.16s var(--ease-spring), color 0.2s;
 }
 .bx-pw-toggle svg[hidden] { display: none !important; }
 .bx-pw-toggle:hover { color: var(--primary); }
@@ -1070,7 +1128,8 @@ main, section, article, aside, .bx-card,
     .bx-folder-meta { font-size: 12px; padding-top: 6px; gap: 4px; }
     .bx-book-card { border-radius: 14px; box-shadow: var(--shadow-sm); }
     .bx-book-ribbon { top: 6px; left: 10px; font-size: 12px; padding: 2px 8px; }
-    .bx-wish-btn { width: 40px; height: 40px; top: 6px; right: 6px; }
+    .bx-wish-btn { width: 42px; height: 42px; top: 6px; right: 6px; }
+    .bx-detail-wish { width: 44px; height: 44px; top: 10px; right: 10px; }
     .bx-book-info { padding: 10px; }
     .bx-book-title {
         font-size: 0.88rem; line-height: 1.32;
@@ -1092,7 +1151,7 @@ html.bx-skip-loader .bx-first-loader { display: none !important; }
    Notifications Bell, Reviews & Stars, Checkout Coupon & Legal Blocks
    ========================================================================== */
 .bx-notif-wrap { position: relative; }
-.bx-notif-btn { position: relative; }
+.bx-notif-btn { position: relative; overflow: visible; -webkit-mask-image: none; }
 .bx-notif-badge {
     position: absolute; top: -4px; right: -4px;
     min-width: 19px; height: 19px; padding: 0 5px;
@@ -1172,4 +1231,68 @@ html.bx-skip-loader .bx-first-loader { display: none !important; }
     .bx-header-actions .bx-pill-btn,
     .bx-header-actions .bx-btn-sm,
     .bx-mobile-toggle { min-width: 40px; min-height: 40px; padding: 6px 7px; }
+}
+
+/* ==========================================================================
+   Unified Tactile Press Overlay (::after inherits exact element radius)
+   ========================================================================== */
+.bx-btn::after,
+.bx-pill-btn::after,
+.bx-search-bar button::after,
+.bx-wish-btn::after,
+.bx-slider-arrow::after,
+.bx-pw-toggle::after,
+.bx-nav a::after,
+.bx-mobile-bottom-nav a::after,
+.bx-drawer-links a::after,
+.bx-breadcrumb a::after,
+.bx-notif-mark-one::after,
+.bx-star-opt::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s ease;
+}
+
+.bx-breadcrumb a,
+.bx-notif-mark-one,
+.bx-star-opt {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.bx-btn:active:not(:disabled)::after,
+.bx-pill-btn:active:not(:disabled)::after,
+.bx-search-bar button:active:not(:disabled)::after,
+.bx-wish-btn:active:not(:disabled)::after,
+.bx-slider-arrow:active:not(:disabled)::after,
+.bx-pw-toggle:active:not(:disabled)::after,
+.bx-nav a:active::after,
+.bx-mobile-bottom-nav a:active::after,
+.bx-drawer-links a:active::after,
+.bx-breadcrumb a:active::after,
+.bx-notif-mark-one:active:not(:disabled)::after,
+.bx-star-opt:active::after {
+    opacity: 0.10;
+}
+
+.bx-pill-btn:active:not(:disabled),
+.bx-search-bar button:active:not(:disabled),
+.bx-wish-btn:active:not(:disabled),
+.bx-mobile-bottom-nav a:active,
+.bx-nav a:active,
+.bx-drawer-links a:active,
+.bx-notif-mark-one:active:not(:disabled),
+.bx-star-opt:active {
+    transform: scale(0.96);
+}
+
+.bx-slider-arrow:active:not(:disabled),
+.bx-pw-toggle:active:not(:disabled) {
+    transform: translateY(-50%) scale(0.96);
 }

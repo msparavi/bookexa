@@ -132,18 +132,18 @@ function handle_admin_routes(string $route): never
             if (!$item) {
                 admin_json_response(['ok' => false, 'message' => 'PDF item not found'], 404);
             }
-            require_once APP_ROOT . '/includes/pdf_proxy.php';
-            $fetched = fetch_source_pdf_secure((string) $item['drive_link']);
-            if (!$fetched['ok']) {
-                admin_json_response(['ok' => false, 'message' => $fetched['message'] ?? 'Fetch failed'], 502);
+            if (empty(trim((string) ($item['drive_link'] ?? '')))) {
+                admin_json_response(['ok' => false, 'message' => 'No Google Drive URL set for this item. Pick a PDF from your computer below instead.'], 422);
             }
-            log_admin_action($admin, 'admin_stream_source', 'item', $itemId, 'Prepared PDF source stream for page export');
-            header('Content-Type: application/pdf');
-            header('Content-Length: ' . strlen($fetched['bytes']));
-            header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-            header('X-Content-Type-Options: nosniff');
-            echo $fetched['bytes'];
-            exit;
+            require_once APP_ROOT . '/includes/pdf_proxy.php';
+            $fetched = fetch_source_pdf_to_file((string) $item['drive_link']);
+            if (!$fetched['ok']) {
+                $admMsg = drive_redact_secret((string) ($fetched['admin_reason'] ?? $fetched['message'] ?? 'Fetch failed'));
+                log_admin_action($admin, 'admin_stream_source_error', 'item', $itemId, $admMsg);
+                admin_json_response(['ok' => false, 'message' => $admMsg], 502);
+            }
+            log_admin_action($admin, 'admin_stream_source', 'item', $itemId, 'Streamed PDF source (' . ($fetched['method'] ?? 'remote') . ') for page export');
+            stream_pdf_file_response((string) $fetched['path'], !empty($fetched['unlink_after']));
         }
 
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -701,12 +701,15 @@ function handle_admin_routes(string $route): never
                 }
 
                 $allowLocal = ($id !== null && str_starts_with($driveInput, 'local://'));
-                $validDrive = validate_drive_url($driveInput, $allowLocal);
-                if ($validDrive === null) {
-                    throw new RuntimeException(admin_bi(
-                        'সঠিক Google Drive URL দিন। উদাহরণ: https://drive.google.com/file/d/FILE_ID/view?usp=sharing',
-                        'Invalid Google Drive URL. Example: https://drive.google.com/file/d/FILE_ID/view?usp=sharing'
-                    ));
+                $validDrive = null;
+                if ($driveInput !== '') {
+                    $validDrive = validate_drive_url($driveInput, $allowLocal);
+                    if ($validDrive === null) {
+                        throw new RuntimeException(admin_bi(
+                            'সঠিক Google Drive URL দিন বা খালি রেখে স্থানীয় কম্পিউটার থেকে পৃষ্ঠা প্রস্তুত করুন।',
+                            'Invalid Google Drive URL. Leave blank if preparing pages directly from your computer.'
+                        ));
+                    }
                 }
 
                 $validSampleDrive = null;
@@ -1040,11 +1043,19 @@ function handle_admin_routes(string $route): never
                 $smtpEnc = in_array((string) ($_POST['smtp_encryption'] ?? 'tls'), ['tls', 'ssl', 'none'], true)
                     ? (string) $_POST['smtp_encryption']
                     : 'tls';
-                db_exec('INSERT INTO settings (setting_key, setting_value) VALUES ("smtp_port", ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(smtp_port)', [$smtpPort]);
-                db_exec('INSERT INTO settings (setting_key, setting_value) VALUES ("smtp_encryption", ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(smtp_encryption)', [$smtpEnc]);
+                db_exec('INSERT INTO settings (setting_key, setting_value) VALUES ("smtp_port", ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [$smtpPort]);
+                db_exec('INSERT INTO settings (setting_key, setting_value) VALUES ("smtp_encryption", ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [$smtpEnc]);
                 $smtpPassNew = (string) ($_POST['smtp_pass'] ?? '');
                 if ($smtpPassNew !== '') {
                     db_exec('INSERT INTO settings (setting_key, setting_value) VALUES ("smtp_pass", ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [$smtpPassNew]);
+                }
+                if (!empty($_POST['clear_google_drive_api_key'])) {
+                    db_exec('DELETE FROM settings WHERE setting_key = "google_drive_api_key"');
+                } else {
+                    $gdKeyNew = trim((string) ($_POST['google_drive_api_key'] ?? ''));
+                    if ($gdKeyNew !== '') {
+                        db_exec('INSERT INTO settings (setting_key, setting_value) VALUES ("google_drive_api_key", ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [$gdKeyNew]);
+                    }
                 }
                 $defLang = ($_POST['default_language'] ?? 'bn') === 'en' ? 'en' : 'bn';
                 $maint = isset($_POST['maintenance_mode']) ? '1' : '0';

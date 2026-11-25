@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS `items` (
     `description_bn` TEXT DEFAULT NULL,
     `description_en` TEXT DEFAULT NULL,
     `cover` VARCHAR(255) DEFAULT NULL,
-    `drive_link` TEXT NOT NULL,
+    `drive_link` TEXT DEFAULT NULL,
     `sample_drive_link` TEXT DEFAULT NULL,
     `price` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     `original_price` DECIMAL(10,2) DEFAULT NULL,

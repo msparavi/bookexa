@@ -53,7 +53,8 @@ if (!$item):
 
 $existingCount = count_prepared_pages((int) $item['id']);
 $resumeFrom = ($existingCount > 0 && ($item['pages_status'] ?? '') !== 'ready') ? ($existingCount + 1) : 1;
-$streamUrl = url('/admin/api/stream-source?item_id=' . (int) $item['id'] . '&_csrf=' . rawurlencode(csrf_token()));
+$hasDriveLink = trim((string) ($item['drive_link'] ?? '')) !== '';
+$streamUrl = $hasDriveLink ? url('/admin/api/stream-source?item_id=' . (int) $item['id'] . '&_csrf=' . rawurlencode(csrf_token())) : '';
 ?>
 
 <section class="bx-card" style="margin-bottom:20px;">
@@ -67,7 +68,7 @@ $streamUrl = url('/admin/api/stream-source?item_id=' . (int) $item['id'] . '&_cs
                 <?= e($lang === 'bn' ? $item['title_bn'] : $item['title_en']) ?>
             </h2>
             <small style="color:var(--text-muted);">
-                <?= $lang === 'bn' ? 'ব্রাউজারে ১৪০০px প্রস্থে WebP (~৮০% মান) রেন্ডার করে সুরক্ষিত storage/pages/' . (int) $item['id'] . ' ফোল্ডারে সংরক্ষণ করবে।' : 'Renders each page at ~1400px wide WebP (quality 80) into protected server storage. Original Drive URL remains hidden for re-processing.' ?>
+                <?= $lang === 'bn' ? 'ব্রাউজারে ১৪০০px প্রস্থে WebP (~৮০% মান) রেন্ডার করে সুরক্ষিত storage/pages/' . (int) $item['id'] . ' ফোল্ডারে সংরক্ষণ করবে। পাঠক কখনও Drive-এ সংযোগ করবে না।' : 'Renders pages at ~1400px wide WebP (quality 80) into protected server storage. Readers never fetch from Google Drive once ready.' ?>
             </small>
         </div>
         <a href="<?= e(url('/admin/pdfs')) ?>" class="bx-btn bx-btn-outline">← <?= $lang === 'bn' ? 'PDF তালিকা' : 'PDF Manager' ?></a>
@@ -86,16 +87,36 @@ $streamUrl = url('/admin/api/stream-source?item_id=' . (int) $item['id'] . '&_cs
                     <div id="prep-progress-fill" style="width:0%;height:100%;background:var(--grad-indigo-teal);transition:width 0.25s ease;"></div>
                 </div>
                 <p id="prep-status-text" style="margin:10px 0 0;font-size:0.88rem;color:var(--text-muted);">
-                    <?= $lang === 'bn' ? 'নিচের বাটনে ক্লিক করে সুরক্ষিত পৃষ্ঠা তৈরি শুরু করুন।' : 'Click below to stream source PDF securely into your admin browser and export page images.' ?>
+                    <?= $hasDriveLink
+                        ? ($lang === 'bn' ? 'Drive থেকে স্ট্রিম করে অথবা সরাসরি কম্পিউটারের PDF ফাইল বেছে পৃষ্ঠা তৈরি শুরু করুন।' : 'Stream from Drive OR pick a PDF file directly from your computer (works for 150MB+ files without Drive).')
+                        : ($lang === 'bn' ? 'এই বইয়ের কোনো Drive লিংক নেই — নিচ থেকে সরাসরি আপনার কম্পিউটারের PDF ফাইল নির্বাচন করুন।' : 'No Drive URL set — pick a PDF directly from your computer below to render & upload protected pages.') ?>
                 </p>
             </div>
 
+            <!-- Local Computer File Fallback (No Drive Needed) -->
+            <div style="background:var(--bg-alt);border:1px dashed var(--border);border-radius:14px;padding:14px;margin-bottom:14px;">
+                <label for="prep-local-file" style="display:block;font-weight:700;margin-bottom:6px;font-size:0.92rem;">
+                    <?= $lang === 'bn' ? 'অথবা কম্পিউটার থেকে সরাসরি PDF নির্বাচন করুন (Drive ছাড়াই)' : 'Pick PDF Directly from Computer (Drive-free fallback for large PDFs)' ?>
+                </label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                    <input type="file" id="prep-local-file" accept=".pdf,application/pdf" class="bx-input" style="flex:1 1 220px;min-width:0;">
+                    <button type="button" id="btn-start-local-prepare" class="bx-btn bx-btn-primary">
+                        <?= $lang === 'bn' ? 'নির্বাচিত ফাইল থেকে প্রস্তুত করুন' : 'Prepare From Local PDF' ?>
+                    </button>
+                </div>
+                <small style="display:block;margin-top:6px;color:var(--text-muted);">
+                    <?= $lang === 'bn' ? 'ফাইলটি আপনার ব্রাউজারেই রেন্ডার হয়ে কেবল পৃষ্ঠার ছবি সার্ভারে আপলোড হবে (সার্ভার মেমোরি বা Drive কোটার ওপর চাপ পড়বে না)।' : 'Processed locally inside your browser — only compressed page images are uploaded to the server.' ?>
+                </small>
+            </div>
+
             <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                <button type="button" id="btn-start-prepare" class="bx-btn bx-btn-primary">
-                    <?= $resumeFrom > 1 ? ($lang === 'bn' ? "পৃষ্ঠা {$resumeFrom} থেকে পুনরায় চালু করুন" : "Resume from Page {$resumeFrom}") : ($lang === 'bn' ? 'সুরক্ষিত পৃষ্ঠা প্রস্তুত করুন' : 'Start Preparing Pages') ?>
+                <?php if ($hasDriveLink): ?>
+                <button type="button" id="btn-start-prepare" class="bx-btn bx-btn-outline">
+                    <?= $resumeFrom > 1 ? ($lang === 'bn' ? "Drive থেকে পৃষ্ঠা {$resumeFrom} থেকে চালু" : "Resume Drive (Page {$resumeFrom})") : ($lang === 'bn' ? 'Drive থেকে প্রস্তুত করুন' : 'Prepare From Drive') ?>
                 </button>
-                <button type="button" id="btn-reprocess-all" class="bx-btn bx-btn-outline">
-                    <?= $lang === 'bn' ? 'সব পৃষ্ঠা আবার তৈরি করুন' : 'Re-process All Pages' ?>
+                <?php endif; ?>
+                <button type="button" id="btn-reprocess-all" class="bx-btn bx-btn-ghost">
+                    <?= $lang === 'bn' ? 'পৃষ্ঠা ১ থেকে পুনরায় চালু' : 'Re-process All From Page 1' ?>
                 </button>
                 <button type="button" id="btn-retry-prepare" class="bx-btn bx-btn-accent" style="display:none;">
                     <?= $lang === 'bn' ? 'আবার চেষ্টা করুন' : 'Retry Failed Page' ?>
@@ -116,6 +137,7 @@ $streamUrl = url('/admin/api/stream-source?item_id=' . (int) $item['id'] . '&_cs
 <script id="bx-prepare-config" type="application/json"><?= json_encode([
     'itemId'        => (int) $item['id'],
     'streamUrl'     => $streamUrl,
+    'hasDriveLink'  => $hasDriveLink,
     'uploadUrl'     => url('/admin/api/upload-page'),
     'finalizeUrl'   => url('/admin/api/finalize-pages'),
     'workerUrl'     => asset('assets/vendor/pdfjs/pdf.worker.min.js'),

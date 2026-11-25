@@ -65,14 +65,15 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
 
 .bx-admin-nav { display: flex; flex-direction: column; gap: 4px; }
 .bx-admin-nav a {
+    position: relative; overflow: hidden; isolation: isolate;
     display: flex; align-items: center; gap: 10px;
     min-height: 44px;
     padding: 10px 14px; border-radius: 13px;
     font-weight: 600; font-size: 0.92rem; color: var(--text-muted);
-    transition: all 0.18s ease; white-space: nowrap;
+    transition: transform 0.16s var(--ease-spring), background-color 0.18s ease, color 0.18s ease; white-space: nowrap;
 }
 .bx-admin-nav a:hover { background: var(--bg-alt); color: var(--text); }
-.bx-admin-nav a:focus-visible { outline: 3px solid var(--focus-ring); outline-offset: 2px; }
+.bx-admin-nav a:focus-visible { outline: 2.5px solid var(--focus-ring); outline-offset: 2px; box-shadow: 0 0 0 3px rgba(var(--primary-rgb, 43, 47, 119), 0.35); }
 .bx-admin-nav a.active {
     background: var(--grad-indigo-teal);
     color: #FFFFFF;
@@ -299,10 +300,12 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
 /* Three-dot Kebab Menu */
 .bx-kebab-wrap { position: relative; display: inline-block; }
 .bx-kebab-btn {
+    position: relative; overflow: hidden; isolation: isolate;
     min-width: 44px; min-height: 44px; border-radius: 12px;
     border: 1px solid var(--border); background: var(--surface); color: var(--text);
     display: inline-flex; align-items: center; justify-content: center;
     cursor: pointer; font-size: 1.2rem; font-weight: 700; line-height: 1;
+    transition: transform 0.16s var(--ease-spring), background-color 0.2s, border-color 0.2s;
 }
 .bx-kebab-menu {
     position: absolute; right: 0; top: calc(100% + 6px);
@@ -313,8 +316,62 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
 }
 .bx-kebab-menu.open { display: flex; }
 .bx-kebab-menu a, .bx-kebab-menu button {
+    position: relative; overflow: hidden; isolation: isolate;
     width: 100%; justify-content: flex-start; min-height: 44px;
     padding: 8px 12px; border-radius: 10px; font-size: 0.88rem; text-align: left;
+    transition: transform 0.16s var(--ease-spring), background-color 0.16s;
+}
+
+.bx-admin-nav a::after,
+.bx-kebab-btn::after,
+.bx-kebab-menu a::after,
+.bx-kebab-menu button::after,
+.bx-tree-toggle::after,
+.bx-switch-btn::after,
+.bx-chart-range-btn::after,
+.bx-pagination a::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: currentColor;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.14s ease;
+}
+
+.bx-tree-toggle,
+.bx-switch-btn,
+.bx-chart-range-btn,
+.bx-pagination a {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+}
+
+.bx-admin-nav a:active::after,
+.bx-kebab-btn:active::after,
+.bx-kebab-menu a:active::after,
+.bx-kebab-menu button:active::after,
+.bx-tree-toggle:active::after,
+.bx-switch-btn:active::after,
+.bx-chart-range-btn:active::after,
+.bx-pagination a:active::after {
+    opacity: 0.10;
+}
+
+.bx-admin-nav a:active,
+.bx-kebab-btn:active,
+.bx-kebab-menu a:active,
+.bx-kebab-menu button:active,
+.bx-tree-toggle:active,
+.bx-switch-btn:active,
+.bx-chart-range-btn:active,
+.bx-pagination a:active {
+    transform: scale(0.96);
+}
+.bx-tree-node:not(.is-collapsed) > .bx-tree-row .bx-tree-toggle:active {
+    transform: rotate(90deg) scale(0.96);
 }
 
 /* Bottom Sheets & Modals (Filters Sheet + Mobile Folder Sheet + Move Modal + Confirm) */

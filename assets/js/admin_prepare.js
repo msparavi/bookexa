@@ -17,6 +17,8 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc = cfg.workerUrl;
 
     const btnStart     = document.getElementById('btn-start-prepare');
+    const btnLocalStart= document.getElementById('btn-start-local-prepare');
+    const localFileIn  = document.getElementById('prep-local-file');
     const btnReprocess = document.getElementById('btn-reprocess-all');
     const btnRetry     = document.getElementById('btn-retry-prepare');
     const fillEl       = document.getElementById('prep-progress-fill');
@@ -27,6 +29,8 @@
     const previewCvs   = document.getElementById('prep-preview-canvas');
 
     let pdfDoc = null;
+    let currentSourceMode = 'drive'; // 'drive' | 'local'
+    let localObjUrl = null;
     let nextPageToProcess = Math.max(1, cfg.resumeFrom || 1);
     let running = false;
 
@@ -54,20 +58,85 @@
         });
     }
 
-    async function loadSourcePdf() {
-        if (pdfDoc) return pdfDoc;
-        setProgress(0, 0, 'Fetching encrypted source PDF to admin browser...');
-        const resp = await fetch(cfg.streamUrl, { cache: 'no-store', credentials: 'same-origin' });
-        if (!resp.ok) {
-            let errMsg = `Could not fetch source PDF (${resp.status})`;
+    function resetLoadedDoc() {
+        if (pdfDoc && typeof pdfDoc.destroy === 'function') {
+            try { pdfDoc.destroy(); } catch (e) {}
+        }
+        pdfDoc = null;
+        if (localObjUrl) {
+            URL.revokeObjectURL(localObjUrl);
+            localObjUrl = null;
+        }
+    }
+
+    async function loadSourcePdf(mode) {
+        if (pdfDoc && currentSourceMode === mode && mode === 'drive') return pdfDoc;
+        resetLoadedDoc();
+        currentSourceMode = mode;
+
+        if (mode === 'local') {
+            const file = localFileIn && localFileIn.files && localFileIn.files[0];
+            if (!file) {
+                throw new Error('Please choose a .pdf file from your computer first.');
+            }
+            const mb = (file.size / 1048576).toFixed(1);
+            setProgress(0, 0, `Reading local PDF (${mb} MB) in slices...`);
+            if (typeof pdfjsLib.PDFDataRangeTransport === 'function') {
+                class LocalFileRangeTransport extends pdfjsLib.PDFDataRangeTransport {
+                    constructor(f) {
+                        super(f.size, null);
+                        this.file = f;
+                    }
+                    requestDataRange(begin, end) {
+                        this.file.slice(begin, end).arrayBuffer().then((buf) => {
+                            this.onDataRange(begin, new Uint8Array(buf));
+                        }).catch((err) => {
+                            this.abort();
+                            console.error(err);
+                        });
+                    }
+                }
+                const range = new LocalFileRangeTransport(file);
+                pdfDoc = await pdfjsLib.getDocument({
+                    range,
+                    disableAutoFetch: true,
+                    rangeChunkSize: 131072
+                }).promise;
+            } else {
+                const buf = await file.arrayBuffer();
+                pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+            }
+            return pdfDoc;
+        }
+
+        if (!cfg.streamUrl) {
+            throw new Error('No Drive link is configured for this book. Use "Pick PDF Directly from Computer".');
+        }
+        setProgress(0, 0, 'Streaming source PDF via HTTP Range into admin browser...');
+        // Quick byte-0 probe so any server/Drive JSON error message is caught cleanly before PDF.js opens the stream
+        const probe = await fetch(cfg.streamUrl, {
+            cache: 'no-store',
+            credentials: 'same-origin',
+            headers: { Range: 'bytes=0-1023' }
+        });
+        if (!probe.ok && probe.status !== 206) {
+            let errMsg = `Could not stream source PDF (${probe.status})`;
             try {
-                const j = await resp.json();
+                const j = await probe.json();
                 if (j && j.message) errMsg = j.message;
             } catch (e) {}
             throw new Error(errMsg);
         }
-        const buf = await resp.arrayBuffer();
-        pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise;
+        if (probe.body && typeof probe.body.cancel === 'function') {
+            try { probe.body.cancel(); } catch (e) {}
+        }
+
+        pdfDoc = await pdfjsLib.getDocument({
+            url: cfg.streamUrl,
+            withCredentials: true,
+            disableAutoFetch: true,
+            rangeChunkSize: 131072
+        }).promise;
         return pdfDoc;
     }
 
@@ -101,15 +170,16 @@
         throw lastErr || new Error('Page upload failed.');
     }
 
-    async function runExport(startAt) {
+    async function runExport(startAt, mode) {
         if (running) return;
         running = true;
         if (btnStart) btnStart.disabled = true;
+        if (btnLocalStart) btnLocalStart.disabled = true;
         if (btnReprocess) btnReprocess.disabled = true;
         if (btnRetry) btnRetry.style.display = 'none';
 
         try {
-            const pdf = await loadSourcePdf();
+            const pdf = await loadSourcePdf(mode || currentSourceMode);
             const total = pdf.numPages;
             const workCanvas = document.createElement('canvas');
 
@@ -176,11 +246,16 @@
         } finally {
             running = false;
             if (btnStart) btnStart.disabled = false;
+            if (btnLocalStart) btnLocalStart.disabled = false;
             if (btnReprocess) btnReprocess.disabled = false;
         }
     }
 
-    btnStart?.addEventListener('click', () => runExport(cfg.pagesStatus === 'processing' ? cfg.resumeFrom : 1));
-    btnReprocess?.addEventListener('click', () => runExport(1));
-    btnRetry?.addEventListener('click', () => runExport(nextPageToProcess));
+    btnStart?.addEventListener('click', () => runExport(cfg.pagesStatus === 'processing' ? cfg.resumeFrom : 1, 'drive'));
+    btnLocalStart?.addEventListener('click', () => {
+        resetLoadedDoc();
+        runExport(cfg.pagesStatus === 'processing' ? cfg.resumeFrom : 1, 'local');
+    });
+    btnReprocess?.addEventListener('click', () => runExport(1, (localFileIn && localFileIn.files && localFileIn.files[0]) ? 'local' : 'drive'));
+    btnRetry?.addEventListener('click', () => runExport(nextPageToProcess, currentSourceMode));
 })();

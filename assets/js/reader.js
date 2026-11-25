@@ -529,9 +529,17 @@
         });
     }
 
+    function sanitizeReaderMsg(rawMsg) {
+        const m = String(rawMsg || '').trim();
+        if (!m || /drive|google|googleapis|curl|http\s+\d{3}/i.test(m)) {
+            return cfg.loadErrorMsg;
+        }
+        return m;
+    }
+
     async function initReader() {
         if (cfg.mode === 'unavailable') {
-            renderErrorState(cfg.unavailableMsg || cfg.loadErrorMsg, false, true);
+            renderErrorState(sanitizeReaderMsg(cfg.unavailableMsg || cfg.loadErrorMsg), false, true);
             return;
         }
 
@@ -547,23 +555,36 @@
                 const resp = await fetch(cfg.streamUrl, {
                     cache: 'no-store',
                     credentials: 'same-origin',
-                    headers: { 'X-Bookexa-Reader': '1' }
+                    headers: { 'X-Bookexa-Reader': '1', Range: 'bytes=0-65535' }
                 });
                 if (resp.status === 409) {
                     showShield(cfg.kickedMessage, true, 'kick');
                     return;
                 }
-                if (!resp.ok) {
+                if (!resp.ok && resp.status !== 206) {
                     let errMsg = cfg.loadErrorMsg;
                     try {
                         const j = await resp.json();
-                        if (j && j.message) errMsg = j.message;
+                        if (j && j.message) errMsg = sanitizeReaderMsg(j.message);
                     } catch (e) {}
                     renderErrorState(errMsg, resp.status === 401 || resp.status === 403);
                     return;
                 }
-                const buffer = await resp.arrayBuffer();
-                pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+                if (resp.status === 206 && resp.headers.get('Accept-Ranges') === 'bytes') {
+                    if (resp.body && typeof resp.body.cancel === 'function') {
+                        try { resp.body.cancel(); } catch (e) {}
+                    }
+                    pdfDoc = await pdfjsLib.getDocument({
+                        url: cfg.streamUrl,
+                        withCredentials: true,
+                        httpHeaders: { 'X-Bookexa-Reader': '1' },
+                        disableAutoFetch: true,
+                        rangeChunkSize: 65536
+                    }).promise;
+                } else {
+                    const buffer = await resp.arrayBuffer();
+                    pdfDoc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise;
+                }
                 allowedPages = cfg.isSample && cfg.maxPages > 0
                     ? Math.min(pdfDoc.numPages, cfg.maxPages)
                     : pdfDoc.numPages;

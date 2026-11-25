@@ -578,7 +578,7 @@ if (preg_match('#^/reader/([^/]+)$#', $route, $m)) {
         $maxPages = $isSample ? min($preparedCount, (int) $item['sample_pages']) : $preparedCount;
         $pageApiBase = url('/api/page?item=' . (int) $item['id'] . '&token=' . rawurlencode($streamToken));
         log_reading_event($uid, (int) $item['id'], $isSample, 'open_reader', $isSample ? 'Protected pages (sample)' : 'Protected pages (full)');
-    } elseif ($isFree && $fallbackEnabled) {
+    } elseif ($isFree && $fallbackEnabled && trim((string) ($item['drive_link'] ?? '')) !== '') {
         $readerMode = 'pdfjs';
         $streamToken = issue_signed_reader_token($uid, (int) $item['id'], $isSample, $newSessionTok, 'stream', 180);
         $maxPages = $isSample ? (int) $item['sample_pages'] : 0;

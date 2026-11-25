@@ -447,7 +447,8 @@
     const driveResult  = document.getElementById('drive-test-result');
     if (btnTestDrive && driveInput && driveResult) {
         btnTestDrive.addEventListener('click', async () => {
-            driveResult.textContent = 'Checking reachability...';
+            btnTestDrive.disabled = true;
+            driveResult.textContent = 'Probing source size, PDF magic header & server limits...';
             driveResult.style.color = 'var(--text-muted)';
             try {
                 const res = await fetch(btnTestDrive.getAttribute('data-endpoint'), {
@@ -457,10 +458,18 @@
                 });
                 const data = await res.json();
                 driveResult.textContent = data.message || (data.ok ? 'Reachable!' : 'Failed');
-                driveResult.style.color = data.ok ? 'var(--teal)' : 'var(--rose)';
+                if (!data.ok) {
+                    driveResult.style.color = 'var(--rose-text, var(--rose))';
+                } else if (data.safe_limit_warning) {
+                    driveResult.style.color = 'var(--gold-text, #9A5B00)';
+                } else {
+                    driveResult.style.color = 'var(--teal-text, var(--teal))';
+                }
             } catch (err) {
                 driveResult.textContent = 'Network check error.';
-                driveResult.style.color = 'var(--rose)';
+                driveResult.style.color = 'var(--rose-text, var(--rose))';
+            } finally {
+                btnTestDrive.disabled = false;
             }
         });
     }

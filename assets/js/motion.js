@@ -108,8 +108,8 @@
     // 5. Button Ripple Micro-interaction
     if (!reducedMotion) {
         document.addEventListener('click', (e) => {
-            const btn = e.target.closest('.bx-btn');
-            if (!btn) return;
+            const btn = e.target.closest('.bx-btn, .bx-pill-btn:not(.bx-notif-btn), .bx-wish-btn, .bx-kebab-btn, .bx-search-bar button, .bx-chart-range-btn');
+            if (!btn || btn.disabled) return;
             const rect = btn.getBoundingClientRect();
             const size = Math.max(rect.width, rect.height);
             const ripple = document.createElement('span');

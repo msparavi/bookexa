@@ -152,7 +152,7 @@ foreach ($rows as $r) {
             </div>
         </div>
 
-        <div style="padding:12px;border-radius:12px;background:var(--bg-alt);border:1px solid var(--border);">
+        <div style="padding:12px;border-radius:12px;background:var(--bg-alt);border:1px solid var(--border);margin-bottom:16px;">
             <label for="smtp_test_to" style="display:block;font-weight:600;margin-bottom:6px;"><?= $lang === 'bn' ? 'টেস্ট ইমেইল পাঠিয়ে পরীক্ষা করুন' : 'Test SMTP Configuration' ?></label>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
                 <input type="email" id="smtp_test_to" class="bx-input" style="flex:1 1 220px;min-width:0;" placeholder="recipient@example.com" value="<?= e($admin['email'] ?? '') ?>">
@@ -161,6 +161,22 @@ foreach ($rows as $r) {
                 </button>
             </div>
             <small id="smtp-test-result" style="display:block;margin-top:6px;font-weight:600;"></small>
+        </div>
+
+        <div style="padding:12px;border-radius:12px;background:var(--bg-alt);border:1px solid var(--border);">
+            <label for="google_drive_api_key" style="display:block;font-weight:600;margin-bottom:4px;">
+                <?= $lang === 'bn' ? 'Google Drive API Key (ঐচ্ছিক — বড় বা কোটা-সুরক্ষিত ফাইলের জন্য)' : 'Google Drive API Key (Optional — Official Drive v3 Stream Mode)' ?>
+            </label>
+            <input type="password" id="google_drive_api_key" name="google_drive_api_key" class="bx-input" autocomplete="new-password" placeholder="<?= !empty($cfg['google_drive_api_key']) ? ($lang === 'bn' ? 'সংরক্ষিত আছে (পরিবর্তন করতে নতুন কী লিখুন)' : 'Saved server-side — leave blank to keep current key') : ($lang === 'bn' ? 'AIza... (সার্ভারে সম্পূর্ণ গোপন থাকবে)' : 'AIza... (stored & used server-side only, never exposed)') ?>">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px;">
+                <small style="color:var(--text-muted);"><?= $lang === 'bn' ? 'কী দেওয়া থাকলে সার্ভার প্রথমে Google Drive API v3 দিয়ে স্ট্রিম করবে, নাহলে সাধারণ ডাউনলোড পদ্ধতি ব্যবহার করবে।' : 'When set, server tries Google Drive API v3 (supportsAllDrives=true) before falling back to direct download streaming.' ?></small>
+                <?php if (!empty($cfg['google_drive_api_key'])): ?>
+                    <label style="display:inline-flex;align-items:center;gap:6px;font-size:0.85rem;color:var(--rose-text);font-weight:600;">
+                        <input type="checkbox" name="clear_google_drive_api_key" value="1">
+                        <?= $lang === 'bn' ? 'সংরক্ষিত API Key মুছুন' : 'Clear saved API key' ?>
+                    </label>
+                <?php endif; ?>
+            </div>
         </div>
     </section>
 

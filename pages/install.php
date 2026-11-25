@@ -100,11 +100,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $pdo->exec($sql);
                 }
 
-                // Also apply 003_media_sync migration cleanly if present and register local /uploads images
-                $mig003 = APP_ROOT . '/database/migrations/003_media_sync.sql';
-                if (is_file($mig003)) {
-                    foreach (bookexa_install_split_sql((string) file_get_contents($mig003)) as $msql) {
-                        $pdo->exec($msql);
+                // Also apply 003_media_sync & 004_drive_optional migrations cleanly if present and register local /uploads images
+                foreach (['003_media_sync.sql', '004_drive_optional_and_logs.sql'] as $migFile) {
+                    $migPath = APP_ROOT . '/database/migrations/' . $migFile;
+                    if (is_file($migPath)) {
+                        foreach (bookexa_install_split_sql((string) file_get_contents($migPath)) as $msql) {
+                            $pdo->exec($msql);
+                        }
                     }
                 }
                 foreach (['folders', 'covers', 'banners', 'products', 'branding'] as $sub) {
