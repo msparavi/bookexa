@@ -1,0 +1,22 @@
+# Bookexa — Ignored Secrets, Runtime Storage & Local Screenshots
+config/config.php
+config/installed.lock
+
+# Runtime caches, logs & prepared protected pages (keep .htaccess & storage/demo)
+storage/logs/*
+!storage/logs/.htaccess
+storage/cache/*
+!storage/cache/.htaccess
+storage/pages/*
+!storage/pages/.htaccess
+storage/demo/.tmp*
+
+# Temp upload / OS / IDE files
+uploads/**/*.tmp.*
+*.log
+.DS_Store
+Thumbs.db
+
+# Local QA screenshots
+pc_ss/
+mbl_ss/
