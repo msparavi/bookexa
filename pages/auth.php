@@ -1,7 +1,8 @@
 <?php
 declare(strict_types=1);
-/** @var string $authMode ('login'|'register'|'forgot'|'reset'), ?string $error, ?string $info, string $next, string $resetToken */
+/** @var string $authMode ('login'|'register'|'forgot'|'reset'|'device_limit'|'otp'), ?string $error, ?string $info, string $next, string $resetToken, array $devices, string $otpPhone, string $otpStep */
 $lang = current_lang();
+$otpEnabled = function_exists('sms_gateway_enabled') && sms_gateway_enabled();
 $showLabel = $lang === 'bn' ? 'দেখুন' : 'Show password';
 $hideLabel = $lang === 'bn' ? 'লুকান' : 'Hide password';
 $errCls    = !empty($error) ? ' is-invalid' : '';
@@ -17,6 +18,7 @@ $pwEyeSvg = '<svg class="bx-icon bx-pw-eye-open" viewBox="0 0 24 24" fill="none"
                 <?php if (!empty($error)): ?><div class="bx-auth-alert is-danger" role="alert"><?= e($error) ?></div><?php endif; ?>
                 <form method="post" action="<?= e(url('/login')) ?>" data-loading-form>
                     <?= csrf_field() ?>
+                    <input type="hidden" name="action" value="password_login">
                     <input type="hidden" name="next" value="<?= e($next ?? '') ?>">
                     <div class="bx-field">
                         <label for="u-id"><?= $lang === 'bn' ? 'ইমেইল বা মোবাইল নম্বর' : 'Email or Phone Number' ?></label>
@@ -34,10 +36,73 @@ $pwEyeSvg = '<svg class="bx-icon bx-pw-eye-open" viewBox="0 0 24 24" fill="none"
                     </div>
                     <button type="submit" class="bx-btn bx-btn-primary" style="width:100%;" data-loading-label="<?= e($lang === 'bn' ? 'লগইন হচ্ছে...' : 'Signing in...') ?>"><?= e(t('nav_login')) ?></button>
                 </form>
+                <?php if ($otpEnabled): ?>
+                    <div style="margin-top:12px;">
+                        <a href="<?= e(url('/login?mode=otp' . (!empty($next) ? '&next=' . rawurlencode($next) : ''))) ?>" class="bx-btn bx-btn-outline" style="width:100%;">
+                            <?= icon('phone') ?> <?= $lang === 'bn' ? 'মোবাইল OTP দিয়ে লগইন করুন' : 'Sign in with Phone OTP' ?>
+                        </a>
+                    </div>
+                <?php endif; ?>
                 <p style="text-align:center;margin:18px 0 0;font-size:0.92rem;" class="bx-muted">
                     <?= $lang === 'bn' ? 'নতুন অ্যাকাউন্ট?' : 'New here?' ?>
                     <a href="<?= e(url('/register')) ?>" style="color:var(--gold-text);font-weight:700;"><?= $lang === 'bn' ? 'রেজিস্টার করুন' : 'Create Account' ?></a>
                 </p>
+
+            <?php elseif ($authMode === 'otp'): ?>
+                <h1 class="bx-h2" style="margin-bottom:6px;"><?= $lang === 'bn' ? 'মোবাইল OTP লগইন' : 'Sign in with Phone OTP' ?></h1>
+                <p class="bx-muted" style="margin:0 0 18px;font-size:0.92rem;"><?= $lang === 'bn' ? 'নিবন্ধিত মোবাইল নম্বরে ৬ অঙ্কের কোড পাঠান।' : 'Receive a 6-digit verification code on your registered phone.' ?></p>
+                <?php if (!empty($error)): ?><div class="bx-auth-alert is-danger" role="alert"><?= e($error) ?></div><?php endif; ?>
+                <?php if (!empty($info)): ?><div class="bx-auth-alert is-success" role="status"><?= $info ?></div><?php endif; ?>
+                <?php if (($otpStep ?? 'phone') === 'code'): ?>
+                    <form method="post" action="<?= e(url('/login')) ?>" data-loading-form>
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="verify_login_otp">
+                        <input type="hidden" name="next" value="<?= e($next ?? '') ?>">
+                        <div class="bx-field">
+                            <label for="o-phone"><?= $lang === 'bn' ? 'মোবাইল নম্বর' : 'Phone Number' ?></label>
+                            <input class="bx-input" id="o-phone" name="phone" required value="<?= e($otpPhone ?? '') ?>" readonly>
+                        </div>
+                        <div class="bx-field">
+                            <label for="o-code"><?= $lang === 'bn' ? '৬ অঙ্কের OTP কোড' : '6-Digit OTP Code' ?></label>
+                            <input class="bx-input" id="o-code" name="otp_code" required inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code">
+                        </div>
+                        <button type="submit" class="bx-btn bx-btn-primary" style="width:100%;" data-loading-label="<?= e($lang === 'bn' ? 'যাচাই হচ্ছে...' : 'Verifying...') ?>"><?= $lang === 'bn' ? 'কোড যাচাই ও লগইন' : 'Verify & Sign In' ?></button>
+                    </form>
+                <?php else: ?>
+                    <form method="post" action="<?= e(url('/login')) ?>" data-loading-form>
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="send_login_otp">
+                        <input type="hidden" name="next" value="<?= e($next ?? '') ?>">
+                        <div class="bx-field">
+                            <label for="o-phone"><?= $lang === 'bn' ? 'মোবাইল নম্বর' : 'Phone Number' ?></label>
+                            <input class="bx-input" id="o-phone" name="phone" required autocomplete="tel" placeholder="01XXXXXXXXX" value="<?= e($otpPhone ?? '') ?>">
+                        </div>
+                        <button type="submit" class="bx-btn bx-btn-primary" style="width:100%;" data-loading-label="<?= e($lang === 'bn' ? 'পাঠানো হচ্ছে...' : 'Sending OTP...') ?>"><?= $lang === 'bn' ? 'OTP কোড পাঠান' : 'Send OTP Code' ?></button>
+                    </form>
+                <?php endif; ?>
+                <p style="text-align:center;margin:16px 0 0;font-size:0.9rem;">
+                    <a href="<?= e(url('/login')) ?>" style="color:var(--primary);font-weight:600;"><?= $lang === 'bn' ? 'পাসওয়ার্ড দিয়ে লগইন করুন' : 'Back to password login' ?></a>
+                </p>
+
+            <?php elseif ($authMode === 'device_limit'): ?>
+                <h1 class="bx-h2" style="margin-bottom:6px;"><?= $lang === 'bn' ? 'ডিভাইস সীমা পূর্ণ হয়েছে' : 'Device Limit Reached' ?></h1>
+                <?php if (!empty($error)): ?><div class="bx-auth-alert is-danger" role="alert"><?= e($error) ?></div><?php endif; ?>
+                <div style="display:flex;flex-direction:column;gap:10px;margin:16px 0;">
+                    <?php foreach ($devices ?? [] as $dev): ?>
+                        <form method="post" action="<?= e(url('/login')) ?>" class="bx-device-card">
+                            <?= csrf_field() ?>
+                            <input type="hidden" name="action" value="replace_device">
+                            <input type="hidden" name="next" value="<?= e($next ?? '') ?>">
+                            <input type="hidden" name="device_id" value="<?= (int) $dev['id'] ?>">
+                            <div>
+                                <strong><?= e((string) $dev['device_label']) ?></strong>
+                                <div class="bx-muted" style="font-size:0.82rem;">IP: <?= e((string) $dev['ip_address']) ?> · <?= e(date('d M Y, H:i', strtotime((string) $dev['last_active_at']))) ?></div>
+                            </div>
+                            <button type="submit" class="bx-btn bx-btn-outline bx-btn-sm"><?= $lang === 'bn' ? 'সাইন আউট ও লগইন' : 'Sign out & use this browser' ?></button>
+                        </form>
+                    <?php endforeach; ?>
+                </div>
+                <a href="<?= e(url('/login')) ?>" class="bx-btn bx-btn-ghost bx-btn-sm"><?= $lang === 'bn' ? 'বাতিল করুন' : 'Cancel' ?></a>
 
             <?php elseif ($authMode === 'register'): ?>
                 <h1 class="bx-h2" style="margin-bottom:6px;"><?= $lang === 'bn' ? 'নতুন অ্যাকাউন্ট খুলুন' : 'Create Bookexa Account' ?></h1>

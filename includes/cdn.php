@@ -73,7 +73,13 @@ function cdn_security_htaccess_content(?string $hotlinkHost = null): string
         . "<IfModule mod_headers.c>\n"
         . "    Header always set X-Content-Type-Options \"nosniff\"\n"
         . "    Header always set Cache-Control \"public, max-age=31536000, immutable\"\n"
-        . "</IfModule>\n";
+        . "</IfModule>\n\n"
+        . "<FilesMatch \"(?i)\\.svg$\">\n"
+        . "    <IfModule mod_headers.c>\n"
+        . "        Header always set Content-Security-Policy \"sandbox\"\n"
+        . "        Header always set Content-Disposition \"attachment\"\n"
+        . "    </IfModule>\n"
+        . "</FilesMatch>\n";
 
     if ($hotlinkHost !== null && $hotlinkHost !== '') {
         $hostEsc = preg_quote($hotlinkHost, '.');
@@ -152,8 +158,9 @@ class BookexaCdnFilesystemDriver implements BookexaCdnDriverInterface
             @mkdir($uploadsDir, 0755, true);
         }
         $htFile = $uploadsDir . '/.htaccess';
-        if (!is_file($htFile)) {
-            @file_put_contents($htFile, cdn_security_htaccess_content());
+        $desired = cdn_security_htaccess_content();
+        if (!is_file($htFile) || !str_contains((string) @file_get_contents($htFile), 'Content-Security-Policy "sandbox"')) {
+            @file_put_contents($htFile, $desired);
         }
     }
 
@@ -377,10 +384,11 @@ class BookexaCdnHttpDriver implements BookexaCdnDriverInterface
             return ['ok' => false, 'error' => 'PHP cURL extension missing.'];
         }
         $ts = time();
+        $nonce = bin2hex(random_bytes(16));
         $sha1 = ($localAbsPath && is_file($localAbsPath)) ? (string) sha1_file($localAbsPath) : '';
-        $sig = hash_hmac('sha256', "{$ts}|{$action}|{$relPath}|{$sha1}", $this->secret);
+        $sig = hash_hmac('sha256', "{$ts}|{$nonce}|{$action}|{$relPath}|{$sha1}", $this->secret);
 
-        $fields = ['ts' => $ts, 'action' => $action, 'rel_path' => $relPath, 'sha1' => $sha1, 'sig' => $sig];
+        $fields = ['ts' => $ts, 'nonce' => $nonce, 'action' => $action, 'rel_path' => $relPath, 'sha1' => $sha1, 'sig' => $sig];
         if ($action === 'put' && $localAbsPath !== null) {
             $fields['file'] = new CURLFile($localAbsPath);
         }
@@ -829,4 +837,43 @@ function media_try_delete_unused_image(?string $oldRelPath): void
 
     db_exec('DELETE FROM media_sync WHERE rel_path = ?', [$clean]);
     media_invalidate_map_cache();
+}
+
+// ============================================================================
+// Rotating Admin-Set Cron Key (Media Sync Authentication)
+// ============================================================================
+function cron_sync_secret(): string
+{
+    try {
+        $row = db_one("SELECT setting_value FROM settings WHERE setting_key = 'cron_sync_secret' LIMIT 1");
+        $val = trim((string) ($row['setting_value'] ?? ''));
+        if ($val !== '') {
+            return $val;
+        }
+        $fresh = bin2hex(random_bytes(24));
+        db_exec(
+            'INSERT INTO settings (setting_key, setting_value) VALUES ("cron_sync_secret", ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+            [$fresh]
+        );
+        return $fresh;
+    } catch (Throwable $e) {
+        return '';
+    }
+}
+
+function regenerate_cron_sync_secret(): string
+{
+    $fresh = bin2hex(random_bytes(24));
+    db_exec(
+        'INSERT INTO settings (setting_key, setting_value) VALUES ("cron_sync_secret", ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+        [$fresh]
+    );
+    return $fresh;
+}
+
+function cron_sync_token(): string
+{
+    $appSecret = (string) app_config('security.app_secret', '');
+    $rotSecret = cron_sync_secret();
+    return hash_hmac('sha256', 'cron_sync_media|' . $rotSecret, $appSecret);
 }

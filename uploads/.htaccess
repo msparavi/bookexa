@@ -31,3 +31,10 @@ Options -Indexes
     Header always set X-Content-Type-Options "nosniff"
     Header always set Cache-Control "public, max-age=31536000, immutable"
 </IfModule>
+
+<FilesMatch "(?i)\.svg$">
+    <IfModule mod_headers.c>
+        Header always set Content-Security-Policy "sandbox"
+        Header always set Content-Disposition "attachment"
+    </IfModule>
+</FilesMatch>

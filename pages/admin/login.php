@@ -57,17 +57,36 @@ $altLang = $lang === 'bn' ? 'en' : 'bn';
 
     <form method="post" action="<?= e(url('/admin/login')) ?>">
         <?= csrf_field() ?>
-        <div class="bx-field" style="margin-bottom:14px;">
-            <label for="admin-email" style="display:block;font-weight:600;margin-bottom:6px;"><?= $lang === 'bn' ? 'অ্যাডমিন ইমেইল' : 'Admin Email' ?></label>
-            <input type="email" id="admin-email" name="email" class="bx-input" required autocomplete="username" placeholder="admin@yourdomain.com">
-        </div>
-        <div class="bx-field" style="margin-bottom:18px;">
-            <label for="admin-pass" style="display:block;font-weight:600;margin-bottom:6px;"><?= $lang === 'bn' ? 'পাসওয়ার্ড' : 'Password' ?></label>
-            <input type="password" id="admin-pass" name="password" class="bx-input" required autocomplete="current-password" placeholder="••••••••">
-        </div>
-        <button type="submit" class="bx-btn bx-btn-primary" style="width:100%;justify-content:center;padding:12px;">
-            <?= $lang === 'bn' ? 'লগইন করুন' : 'Sign In to Dashboard' ?>
-        </button>
+        <?php if (!empty($totpRequired)): ?>
+            <input type="hidden" name="action" value="verify_2fa">
+            <div class="bx-alert bx-alert-info" style="margin-bottom:14px;">
+                <?= $lang === 'bn'
+                    ? 'Google Authenticator অ্যাপের ৬ অঙ্কের কোড অথবা ৮ অঙ্কের ব্যাকআপ কোড লিখুন।'
+                    : 'Enter the 6-digit code from Google Authenticator or an 8-character backup code.' ?>
+            </div>
+            <div class="bx-field" style="margin-bottom:18px;">
+                <label for="admin-totp" style="display:block;font-weight:600;margin-bottom:6px;"><?= $lang === 'bn' ? '2FA / ব্যাকআপ কোড *' : 'Authenticator or Backup Code *' ?></label>
+                <input type="text" id="admin-totp" name="totp_code" class="bx-input" required autofocus autocomplete="one-time-code" placeholder="123456 or ABCD-1234">
+            </div>
+            <button type="submit" class="bx-btn bx-btn-primary" style="width:100%;justify-content:center;padding:12px;">
+                <?= $lang === 'bn' ? 'যাচাই ও প্রবেশ করুন' : 'Verify & Sign In' ?>
+            </button>
+            <div style="margin-top:10px;text-align:center;">
+                <a href="<?= e(url('/admin/login?reset_2fa=1')) ?>" style="font-size:0.84rem;color:var(--text-muted);"><?= $lang === 'bn' ? 'ভিন্ন অ্যাকাউন্ট দিয়ে লগইন' : 'Use a different account' ?></a>
+            </div>
+        <?php else: ?>
+            <div class="bx-field" style="margin-bottom:14px;">
+                <label for="admin-email" style="display:block;font-weight:600;margin-bottom:6px;"><?= $lang === 'bn' ? 'অ্যাডমিন ইমেইল' : 'Admin Email' ?></label>
+                <input type="email" id="admin-email" name="email" class="bx-input" required autocomplete="username" placeholder="admin@yourdomain.com">
+            </div>
+            <div class="bx-field" style="margin-bottom:18px;">
+                <label for="admin-pass" style="display:block;font-weight:600;margin-bottom:6px;"><?= $lang === 'bn' ? 'পাসওয়ার্ড' : 'Password' ?></label>
+                <input type="password" id="admin-pass" name="password" class="bx-input" required autocomplete="current-password" placeholder="••••••••">
+            </div>
+            <button type="submit" class="bx-btn bx-btn-primary" style="width:100%;justify-content:center;padding:12px;">
+                <?= $lang === 'bn' ? 'লগইন করুন' : 'Sign In to Dashboard' ?>
+            </button>
+        <?php endif; ?>
     </form>
 
     <div style="margin-top:18px;text-align:center;">

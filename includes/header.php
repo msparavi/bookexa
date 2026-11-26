@@ -96,8 +96,9 @@ $recentNotifs = $user
         </nav>
 
         <form class="bx-search-bar" action="<?= e(url('/search')) ?>" method="get">
-            <input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="<?= e(t('search_placeholder')) ?>" aria-label="<?= e(t('nav_search')) ?>">
+            <input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="<?= e(t('search_placeholder')) ?>" aria-label="<?= e(t('nav_search')) ?>" data-suggest-input autocomplete="off">
             <button type="submit" aria-label="<?= e(t('nav_search')) ?>"><?= icon('search') ?></button>
+            <div class="bx-suggest-dropdown" hidden></div>
         </form>
 
         <div class="bx-header-actions">
@@ -171,8 +172,9 @@ $recentNotifs = $user
             <a href="<?= e($langUrl) ?>" class="bx-pill-btn bx-drawer-lang-btn"><?= e($lang === 'bn' ? 'English' : 'বাংলা') ?></a>
         </div>
         <form class="bx-search-bar" style="display:flex;max-width:none;" action="<?= e(url('/search')) ?>" method="get">
-            <input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="<?= e(t('search_placeholder')) ?>">
+            <input type="search" name="q" value="<?= e($_GET['q'] ?? '') ?>" placeholder="<?= e(t('search_placeholder')) ?>" data-suggest-input autocomplete="off">
             <button type="submit"><?= icon('search') ?></button>
+            <div class="bx-suggest-dropdown" hidden></div>
         </form>
         <div class="bx-drawer-links">
             <a href="<?= e(url('/')) ?>" class="<?= $activeNav === 'home' ? 'active' : '' ?>"><?= e(t('nav_home')) ?></a>

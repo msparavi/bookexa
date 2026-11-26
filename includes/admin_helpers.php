@@ -1,9 +1,110 @@
 <?php
 declare(strict_types=1);
 
+require_once APP_ROOT . '/includes/totp.php';
+
 const ADMIN_SESSION_TIMEOUT    = 1800; // 30 minutes
 const ADMIN_LOGIN_MAX_ATTEMPTS = 5;
 const ADMIN_LOGIN_WINDOW_SEC   = 600;
+
+const ADMIN_ROLE_PERMISSIONS = [
+    'superadmin' => ['*'],
+    'editor'     => ['dashboard', 'banners', 'folders', 'pdfs', 'prepare-pages', 'prepare-queue', 'import-csv', 'reviews', 'media', 'account-security'],
+    'support'    => ['dashboard', 'orders', 'inbox', 'users', 'account-security'],
+    'analyst'    => ['dashboard', 'reports', 'account-security'],
+];
+
+function admin_role_label(string $role): string
+{
+    return match ($role) {
+        'superadmin' => 'Super Admin',
+        'editor'     => 'Editor',
+        'support'    => 'Support',
+        'analyst'    => 'Analyst',
+        default      => ucfirst($role),
+    };
+}
+
+function admin_can(array $admin, string $section): bool
+{
+    $role = (string) ($admin['role'] ?? 'editor');
+    $allowed = ADMIN_ROLE_PERMISSIONS[$role] ?? ['dashboard', 'account-security'];
+    if (in_array('*', $allowed, true)) {
+        return true;
+    }
+    return in_array($section, $allowed, true);
+}
+
+function admin_api_section(string $sub): string
+{
+    return match ($sub) {
+        'api/folder-move', 'api/folder-rename', 'api/folder-step' => 'folders',
+        'api/banner-reorder' => 'banners',
+        'api/test-drive-link', 'api/stream-source', 'api/upload-page', 'api/finalize-pages',
+        'api/discard-staging', 'api/upload-auto-cover', 'api/prepare-queue-next' => 'prepare-pages',
+        'api/import-csv-batch' => 'import-csv',
+        'api/test-smtp', 'api/cdn-test', 'api/cdn-sync-batch', 'api/cdn-recheck', 'api/cdn-pull' => 'settings',
+        default => 'dashboard',
+    };
+}
+
+function admin_ipv4_in_cidr(string $ip, string $cidr): bool
+{
+    if (!str_contains($cidr, '/')) {
+        return hash_equals($cidr, $ip);
+    }
+    [$net, $bitsRaw] = explode('/', $cidr, 2);
+    $ipLong  = @ip2long($ip);
+    $netLong = @ip2long($net);
+    $bits    = (int) $bitsRaw;
+    if ($ipLong === false || $netLong === false || $bits < 0 || $bits > 32) {
+        return false;
+    }
+    $mask = $bits === 0 ? 0 : (~0 << (32 - $bits));
+    return ($ipLong & $mask) === ($netLong & $mask);
+}
+
+function admin_ip_allowed(string $ip): bool
+{
+    $raw = trim(site_setting('admin_ip_allowlist', ''));
+    if ($raw === '') {
+        return true;
+    }
+    $entries = array_values(array_filter(array_map('trim', preg_split('/[\s,;]+/', $raw) ?: [])));
+    if (!$entries) {
+        return true;
+    }
+    foreach ($entries as $entry) {
+        if ($entry === $ip || admin_ipv4_in_cidr($ip, $entry)) {
+            return true;
+        }
+        // Normalize IPv6 loopback vs IPv4 loopback on local hosts
+        if (($entry === '127.0.0.1' && $ip === '::1') || ($entry === '::1' && $ip === '127.0.0.1')) {
+            return true;
+        }
+    }
+    return false;
+}
+
+function list_admin_sessions(int $adminId): array
+{
+    return db_all(
+        'SELECT id, session_token, ip_address, user_agent, last_active_at, created_at FROM admin_sessions WHERE admin_id = ? ORDER BY last_active_at DESC, id DESC',
+        [$adminId]
+    );
+}
+
+function revoke_all_admin_sessions(int $adminId, ?string $keepToken = null): int
+{
+    if ($keepToken !== null && $keepToken !== '') {
+        $stmt = db()->prepare('DELETE FROM admin_sessions WHERE admin_id = ? AND session_token <> ?');
+        $stmt->execute([$adminId, $keepToken]);
+        return $stmt->rowCount();
+    }
+    $stmt = db()->prepare('DELETE FROM admin_sessions WHERE admin_id = ?');
+    $stmt->execute([$adminId]);
+    return $stmt->rowCount();
+}
 
 function admin_rate_limit_check(string $key, int $maxHits, int $windowSeconds): bool
 {
@@ -73,18 +174,38 @@ function require_admin(): array
         redirect('/admin/login');
     }
 
+    $ip = client_ip();
+    if (!admin_ip_allowed($ip)) {
+        log_security_event('admin_ip_blocked', 'admin#' . (int) $aid, 'Blocked IP: ' . $ip);
+        admin_logout();
+        render_error_page(403, 'IP Access Denied', 'Your IP address is not in the configured admin allowlist.');
+    }
+
     $lastActivity = (int) ($_SESSION['admin_last_activity'] ?? 0);
     if ($lastActivity > 0 && (time() - $lastActivity) > ADMIN_SESSION_TIMEOUT) {
-        unset($_SESSION['admin_id'], $_SESSION['admin_last_activity']);
-        session_regenerate_id(true);
+        admin_logout();
         flash('warning', current_lang() === 'bn' ? 'সেশন মেয়াদ শেষ হয়েছে। আবার লগইন করুন।' : 'Session timed out due to inactivity. Please log in again.');
         redirect('/admin/login?timeout=1');
     }
 
-    $admin = db_one('SELECT id, name, email, role, is_active, must_change_password, password_hash FROM admins WHERE id = ? LIMIT 1', [(int) $aid]);
+    $admin = db_one('SELECT id, name, email, role, is_active, must_change_password, totp_enabled, password_hash FROM admins WHERE id = ? LIMIT 1', [(int) $aid]);
     if (!$admin || !(int) $admin['is_active']) {
-        unset($_SESSION['admin_id'], $_SESSION['admin_last_activity']);
+        admin_logout();
         redirect('/admin/login');
+    }
+    $sessTok = (string) ($_SESSION['admin_session_token'] ?? '');
+    if ($sessTok !== '') {
+        $sRow = db_one('SELECT id FROM admin_sessions WHERE admin_id = ? AND session_token = ? LIMIT 1', [(int) $aid, $sessTok]);
+        if (!$sRow) {
+            unset($_SESSION['admin_id'], $_SESSION['admin_last_activity'], $_SESSION['admin_session_token'], $_SESSION['admin_session_ping']);
+            flash('warning', current_lang() === 'bn' ? 'সেশন বাতিল করা হয়েছে। আবার লগইন করুন।' : 'This admin session was signed out. Please log in again.');
+            redirect('/admin/login');
+        }
+        $lastPing = (int) ($_SESSION['admin_session_ping'] ?? 0);
+        if ((time() - $lastPing) >= 60) {
+            db_exec('UPDATE admin_sessions SET last_active_at = NOW(), ip_address = ? WHERE id = ?', [$ip, (int) $sRow['id']]);
+            $_SESSION['admin_session_ping'] = time();
+        }
     }
     if (app_config('app_env') === 'production' && password_verify('Admin@1234', (string) $admin['password_hash'])) {
         $admin['must_change_password'] = 1;
@@ -95,9 +216,35 @@ function require_admin(): array
     return $admin;
 }
 
+function complete_admin_login(array $admin): void
+{
+    $aid = (int) $admin['id'];
+    db_exec('UPDATE admins SET last_login_at = NOW() WHERE id = ?', [$aid]);
+    if (session_status() === PHP_SESSION_ACTIVE && PHP_SAPI !== 'cli') {
+        session_regenerate_id(true);
+    }
+    $sessTok = bin2hex(random_bytes(32));
+    $ua = substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 250);
+    db_exec(
+        'INSERT INTO admin_sessions (admin_id, session_token, ip_address, user_agent, last_active_at) VALUES (?, ?, ?, ?, NOW())',
+        [$aid, $sessTok, client_ip(), $ua]
+    );
+    $_SESSION['admin_id'] = $aid;
+    $_SESSION['admin_session_token'] = $sessTok;
+    $_SESSION['admin_last_activity'] = time();
+    $_SESSION['admin_session_ping'] = time();
+    log_admin_action($admin, 'admin_login', 'admin', $aid, 'Signed into dashboard');
+}
+
 function attempt_admin_login(string $email, string $password): array
 {
-    $ipKey = 'admin_login:ip:' . client_ip();
+    $ip = client_ip();
+    if (!admin_ip_allowed($ip)) {
+        log_security_event('admin_ip_blocked', $email, 'Login blocked for IP: ' . $ip);
+        return ['ok' => false, 'error' => current_lang() === 'bn' ? 'আপনার IP থেকে অ্যাডমিন প্যানেলে প্রবেশ অনুমোদিত নয়।' : 'Access denied: your IP address is not in the admin allowlist.'];
+    }
+
+    $ipKey = 'admin_login:ip:' . $ip;
     if (!admin_rate_limit_check($ipKey, ADMIN_LOGIN_MAX_ATTEMPTS, ADMIN_LOGIN_WINDOW_SEC)) {
         log_security_event('failed_admin_login', $email, 'Rate limit exceeded');
         return ['ok' => false, 'error' => current_lang() === 'bn' ? 'অনেকবার ভুল চেষ্টা হয়েছে। ১০ মিনিট পর আবার চেষ্টা করুন।' : 'Too many failed login attempts. Please wait 10 minutes.'];
@@ -117,20 +264,51 @@ function attempt_admin_login(string $email, string $password): array
     }
 
     db_exec('DELETE FROM rate_limits WHERE rate_key = ?', [$ipKey]);
-    db_exec('UPDATE admins SET last_login_at = NOW() WHERE id = ?', [(int) $admin['id']]);
 
-    session_regenerate_id(true);
-    $_SESSION['admin_id'] = (int) $admin['id'];
-    $_SESSION['admin_last_activity'] = time();
+    if (!empty($admin['totp_enabled']) && !empty($admin['totp_secret'])) {
+        return ['ok' => false, 'code' => 'TOTP_REQUIRED', 'admin' => $admin];
+    }
 
-    log_admin_action($admin, 'admin_login', 'admin', (int) $admin['id'], 'Signed into dashboard');
+    complete_admin_login($admin);
+    return ['ok' => true, 'admin' => $admin];
+}
+
+function verify_admin_totp_and_login(int $adminId, string $code): array
+{
+    $ipKey = 'admin_2fa:id:' . $adminId . ':' . client_ip();
+    if (!admin_rate_limit_check($ipKey, 8, 600)) {
+        log_security_event('failed_admin_2fa', 'admin#' . $adminId, '2FA rate limit exceeded');
+        return ['ok' => false, 'error' => current_lang() === 'bn' ? 'অনেকবার ভুল 2FA কোড। ১০ মিনিট পর চেষ্টা করুন।' : 'Too many invalid 2FA attempts. Wait 10 minutes.'];
+    }
+    $admin = db_one('SELECT * FROM admins WHERE id = ? AND is_active = 1 LIMIT 1', [$adminId]);
+    if (!$admin || empty($admin['totp_enabled']) || empty($admin['totp_secret'])) {
+        return ['ok' => false, 'error' => 'Invalid 2FA session.'];
+    }
+    $ok = totp_verify_code((string) $admin['totp_secret'], $code, 1) || totp_consume_backup_code($adminId, $code);
+    if (!$ok) {
+        log_security_event('failed_admin_2fa', (string) $admin['email'], 'Invalid authenticator or backup code');
+        return ['ok' => false, 'error' => current_lang() === 'bn' ? 'অথেনটিকেটর বা ব্যাকআপ কোড সঠিক নয়।' : 'Invalid authenticator or backup code.'];
+    }
+    db_exec('DELETE FROM rate_limits WHERE rate_key = ?', [$ipKey]);
+    log_security_event('admin_2fa_success', (string) $admin['email'], 'Passed TOTP/backup challenge');
+    complete_admin_login($admin);
     return ['ok' => true, 'admin' => $admin];
 }
 
 function admin_logout(): void
 {
-    unset($_SESSION['admin_id'], $_SESSION['admin_last_activity']);
-    session_regenerate_id(true);
+    $aid = (int) ($_SESSION['admin_id'] ?? 0);
+    $tok = (string) ($_SESSION['admin_session_token'] ?? '');
+    if ($aid > 0 && $tok !== '') {
+        try {
+            db_exec('DELETE FROM admin_sessions WHERE admin_id = ? AND session_token = ?', [$aid, $tok]);
+        } catch (Throwable $e) {
+        }
+    }
+    unset($_SESSION['admin_id'], $_SESSION['admin_last_activity'], $_SESSION['admin_session_token'], $_SESSION['admin_session_ping']);
+    if (session_status() === PHP_SESSION_ACTIVE && PHP_SAPI !== 'cli') {
+        session_regenerate_id(true);
+    }
 }
 
 function generate_unique_folder_slug(string $input, ?int $parentId, ?int $excludeId = null): string
@@ -560,7 +738,7 @@ function save_cropped_base64_image(string $dataUri, string $subDir): ?string
     return $relPath;
 }
 
-function safe_admin_image_upload(string $inputName, string $subDir, int $maxWidth = 1000, bool $allowSvgIcon = false): ?string
+function safe_admin_image_upload(string $inputName, string $subDir, int $maxWidth = 1000, bool $allowIco = false): ?string
 {
     $subDir = trim($subDir, '/');
     if (!in_array($subDir, media_allowed_subdirs(), true)) {
@@ -576,14 +754,18 @@ function safe_admin_image_upload(string $inputName, string $subDir, int $maxWidt
     if ($file['size'] > 4 * 1024 * 1024) {
         throw new RuntimeException('Image exceeds maximum 4 MB limit.');
     }
+    $origExt = strtolower((string) pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
+    if ($origExt === 'svg' || $origExt === 'svgz') {
+        throw new RuntimeException('SVG uploads are disabled for security. Allowed formats: JPG, PNG, WebP.');
+    }
     $finfo = new finfo(FILEINFO_MIME_TYPE);
     $mime = $finfo->file($file['tmp_name']);
     $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
-    if ($allowSvgIcon && ($mime === 'image/x-icon' || $mime === 'image/vnd.microsoft.icon')) {
+    if ($allowIco && ($mime === 'image/x-icon' || $mime === 'image/vnd.microsoft.icon')) {
         $allowed[$mime] = 'ico';
     }
     if (!isset($allowed[$mime])) {
-        throw new RuntimeException('Invalid file type. Allowed: JPG, PNG, WebP.');
+        throw new RuntimeException('Invalid file type. Allowed raster formats: JPG, PNG, WebP' . ($allowIco ? ', ICO' : '') . ' (SVG blocked).');
     }
     $ext = $allowed[$mime];
     $relDir = 'uploads/' . $subDir;
@@ -690,4 +872,188 @@ function build_folder_options(?int $parentId = null, int $depth = 0, ?int $exclu
         $out = array_merge($out, build_folder_options((int) $r['id'], $depth + 1, $excludeId));
     }
     return $out;
+}
+
+function store_uploaded_bytes_as_cover(string $rawBytes): string
+{
+    $info = @getimagesizefromstring($rawBytes);
+    if (!$info || !in_array($info[2], [IMAGETYPE_JPEG, IMAGETYPE_PNG, IMAGETYPE_WEBP], true)) {
+        throw new RuntimeException('Invalid cover image payload.');
+    }
+    $ext = $info[2] === IMAGETYPE_WEBP ? 'webp' : ($info[2] === IMAGETYPE_PNG ? 'png' : 'jpg');
+    $relDir = 'uploads/covers';
+    $absDir = APP_ROOT . '/' . $relDir;
+    if (!is_dir($absDir)) {
+        @mkdir($absDir, 0755, true);
+    }
+    $relPath = $relDir . '/auto_' . date('Ymd_His') . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+    $destAbs = APP_ROOT . '/' . $relPath;
+    if (@file_put_contents($destAbs, $rawBytes) === false) {
+        throw new RuntimeException('Failed to write cover file.');
+    }
+    media_sync_push_one($relPath);
+    return $relPath;
+}
+
+function admin_find_or_create_folder_path(string $folderPath, bool $autoCreate): array
+{
+    $segments = array_values(array_filter(array_map('trim', explode('/', str_replace('\\', '/', $folderPath))), static fn(string $s): bool => $s !== ''));
+    if (!$segments) {
+        return ['ok' => true, 'folder_id' => null, 'created' => false];
+    }
+    $parentId = null;
+    $missing = false;
+    $createdAny = false;
+    foreach ($segments as $seg) {
+        $segLow = mb_strtolower($seg);
+        $segSlug = slugify($seg);
+        if ($parentId === null) {
+            $row = db_one(
+                'SELECT id FROM folders WHERE parent_id IS NULL AND (LOWER(name_en) = ? OR LOWER(name_bn) = ? OR slug = ?) LIMIT 1',
+                [$segLow, $segLow, $segSlug]
+            );
+        } else {
+            $row = db_one(
+                'SELECT id FROM folders WHERE parent_id = ? AND (LOWER(name_en) = ? OR LOWER(name_bn) = ? OR slug = ?) LIMIT 1',
+                [$parentId, $segLow, $segLow, $segSlug]
+            );
+        }
+        if ($row) {
+            $parentId = (int) $row['id'];
+        } else {
+            if (!$autoCreate) {
+                $missing = true;
+                break;
+            }
+            $newSlug = generate_unique_folder_slug($seg, $parentId);
+            $parentId = (int) db_insert(
+                'INSERT INTO folders (parent_id, slug, name_bn, name_en, is_active, sort_order) VALUES (?, ?, ?, ?, 1, 0)',
+                [$parentId, $newSlug, $seg, $seg]
+            );
+            $createdAny = true;
+        }
+    }
+    return ['ok' => !$missing, 'folder_id' => $missing ? null : $parentId, 'created' => $createdAny];
+}
+
+function admin_parse_csv_preview(string $tmpFile, bool $autoCreateFolders): array
+{
+    $fh = @fopen($tmpFile, 'rb');
+    if (!$fh) {
+        throw new RuntimeException('Cannot open uploaded CSV file.');
+    }
+    $rawHeader = fgetcsv($fh);
+    if (!is_array($rawHeader) || !$rawHeader) {
+        fclose($fh);
+        throw new RuntimeException('CSV file appears empty or missing header row.');
+    }
+    $rawHeader[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $rawHeader[0]);
+    $headers = array_map(static fn($h): string => strtolower(trim((string) $h)), $rawHeader);
+
+    $rows = [];
+    $seenSlugs = [];
+    $summary = ['total' => 0, 'valid' => 0, 'errors' => 0, 'new_folders' => 0];
+    $lineNo = 1;
+    while (($csvRow = fgetcsv($fh)) !== false && $lineNo <= 1000) {
+        $lineNo++;
+        if (count(array_filter($csvRow, static fn($v): bool => trim((string) $v) !== '')) === 0) {
+            continue;
+        }
+        $assoc = [];
+        foreach ($headers as $idx => $key) {
+            if ($key !== '') {
+                $assoc[$key] = trim((string) ($csvRow[$idx] ?? ''));
+            }
+        }
+        $folderPath  = (string) ($assoc['folder_path'] ?? '');
+        $titleBn     = (string) ($assoc['title_bn'] ?? '');
+        $titleEn     = (string) ($assoc['title_en'] ?? '');
+        $authorEn    = (string) ($assoc['author_en'] ?? ($assoc['author'] ?? ''));
+        $authorBn    = (string) ($assoc['author_bn'] ?? $authorEn);
+        $descEn      = (string) ($assoc['description_en'] ?? ($assoc['description'] ?? ''));
+        $descBn      = (string) ($assoc['description_bn'] ?? $descEn);
+        $price       = max(0.0, (float) ($assoc['price'] ?? 0));
+        $origPrice   = trim((string) ($assoc['original_price'] ?? '')) !== '' ? max(0.0, (float) $assoc['original_price']) : null;
+        $isFreeRaw   = strtolower((string) ($assoc['is_free'] ?? '0'));
+        $isFree      = in_array($isFreeRaw, ['1', 'true', 'yes', 'free'], true) || $price <= 0;
+        $samplePages = max(0, (int) ($assoc['sample_pages'] ?? 4));
+        $driveLink   = (string) ($assoc['drive_link'] ?? '');
+        $slugRaw     = (string) ($assoc['slug'] ?? '');
+        $slug        = slugify($slugRaw !== '' ? $slugRaw : ($titleEn !== '' ? $titleEn : $titleBn));
+
+        $errors = [];
+        $folderNote = '';
+        if ($titleEn === '' && $titleBn === '') {
+            $errors[] = 'Missing title';
+        }
+        if ($titleBn === '' && $titleEn !== '') {
+            $titleBn = $titleEn;
+        }
+        if ($titleEn === '' && $titleBn !== '') {
+            $titleEn = $titleBn;
+        }
+        if ($driveLink !== '' && validate_drive_url($driveLink, true) === null) {
+            $errors[] = 'Invalid Google Drive link';
+        }
+        if (isset($seenSlugs[$slug]) || db_one('SELECT id FROM items WHERE slug = ? LIMIT 1', [$slug])) {
+            $errors[] = 'Duplicate slug: ' . $slug;
+        }
+        $seenSlugs[$slug] = true;
+
+        $fLookup = $folderPath !== '' ? admin_check_folder_path_exists($folderPath) : ['exists' => true];
+        if (!$fLookup['exists']) {
+            if ($autoCreateFolders) {
+                $folderNote = 'Missing folder — will auto-create';
+                $summary['new_folders']++;
+            } else {
+                $errors[] = 'Missing folder: ' . $folderPath;
+                $summary['new_folders']++;
+            }
+        }
+
+        $summary['total']++;
+        if ($errors) {
+            $summary['errors']++;
+        } else {
+            $summary['valid']++;
+        }
+        $rows[] = [
+            'line'           => $lineNo,
+            'folder_path'    => $folderPath,
+            'folder_note'    => $folderNote,
+            'title_bn'       => $titleBn,
+            'title_en'       => $titleEn,
+            'author_bn'      => $authorBn,
+            'author_en'      => $authorEn,
+            'description_bn' => $descBn,
+            'description_en' => $descEn,
+            'price'          => $isFree ? 0.0 : $price,
+            'original_price' => $origPrice,
+            'is_free'        => $isFree ? 1 : 0,
+            'sample_pages'   => $samplePages,
+            'drive_link'     => $driveLink,
+            'slug'           => $slug,
+            'errors'         => $errors,
+        ];
+    }
+    fclose($fh);
+    return ['rows' => $rows, 'summary' => $summary];
+}
+
+function admin_check_folder_path_exists(string $folderPath): array
+{
+    $segments = array_values(array_filter(array_map('trim', explode('/', str_replace('\\', '/', $folderPath))), static fn(string $s): bool => $s !== ''));
+    $parentId = null;
+    foreach ($segments as $seg) {
+        $segLow = mb_strtolower($seg);
+        $segSlug = slugify($seg);
+        $row = $parentId === null
+            ? db_one('SELECT id FROM folders WHERE parent_id IS NULL AND (LOWER(name_en) = ? OR LOWER(name_bn) = ? OR slug = ?) LIMIT 1', [$segLow, $segLow, $segSlug])
+            : db_one('SELECT id FROM folders WHERE parent_id = ? AND (LOWER(name_en) = ? OR LOWER(name_bn) = ? OR slug = ?) LIMIT 1', [$parentId, $segLow, $segLow, $segSlug]);
+        if (!$row) {
+            return ['exists' => false, 'folder_id' => null];
+        }
+        $parentId = (int) $row['id'];
+    }
+    return ['exists' => true, 'folder_id' => $parentId];
 }

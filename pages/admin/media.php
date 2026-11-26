@@ -96,6 +96,21 @@ $fmtBytes  = $totBytes >= 1048576
             <div id="cdn-sync-progress-fill" style="width:<?= $totImgs > 0 ? round(($syncedCnt / $totImgs) * 100) : 0 ?>%;height:100%;background:var(--grad-indigo-teal);transition:width 0.25s ease;"></div>
         </div>
     </div>
+
+    <div style="margin-top:14px;padding:12px 14px;border-radius:14px;background:var(--bg-alt);border:1px solid var(--border);display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+        <div style="flex:1 1 280px;min-width:0;">
+            <strong style="display:block;font-size:0.86rem;margin-bottom:4px;"><?= $lang === 'bn' ? 'সক্রিয় ক্রন সিঙ্ক URL (রিজেনারেটযোগ্য)' : 'Active Cron Sync URL (Rotatable Secret)' ?></strong>
+            <input type="text" readonly class="bx-input" style="font-family:monospace;font-size:0.8rem;" value="<?= e(url('/cron/sync_media.php?key=' . cron_sync_token())) ?>">
+        </div>
+        <form method="post" action="<?= e(url('/admin/media')) ?>" style="margin:0;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="regenerate_cron_key">
+            <input type="hidden" name="_return" value="/admin/media">
+            <button type="submit" class="bx-btn bx-btn-outline" data-confirm="<?= e($lang === 'bn' ? 'নতুন ক্রন কী তৈরি করলে পুরনো ক্রন URL অকার্যকর হবে। চালিয়ে যাবেন?' : 'Regenerating the cron key invalidates the old key immediately. Continue?') ?>">
+                <?= $lang === 'bn' ? 'ক্রন কী রিজেনারেট' : 'Regenerate cron key' ?>
+            </button>
+        </form>
+    </div>
 </section>
 
 <!-- Site Portability Package Export -->

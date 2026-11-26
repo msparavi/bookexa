@@ -2,9 +2,13 @@
 declare(strict_types=1);
 
 /**
- * Variables provided by index.php:
- * $currentFolder (?array), $breadcrumbs (array), $subfolders (array), $items (array), $slugPrefix (string), $filterQ (string)
+ * Folder browsing page with sort, filters, and 24/page Load More pagination.
+ * @var ?array $currentFolder, array $breadcrumbs, array $subfolders, array $items
+ * @var string $slugPrefix, array $filters, array $authors, int $page, int $totalPages, int $totalItems
  */
+$lang = current_lang();
+$basePath = $currentFolder ? ('/pdf/' . $slugPrefix) : '/pdf';
+$actionUrl = url($basePath);
 ?>
 <div class="container" style="padding-top:20px;">
     <nav class="bx-breadcrumb" aria-label="Breadcrumb">
@@ -35,12 +39,16 @@ declare(strict_types=1);
             <h1 class="bx-h2"><?= e($currentFolder ? bi($currentFolder, 'name') : t('browse_folders_title')) ?></h1>
             <p><?= e($currentFolder ? bi($currentFolder, 'description', t('featured_folders_sub')) : t('featured_folders_sub')) ?></p>
         </div>
+    </div>
 
-        <form method="get" action="<?= e($currentFolder ? url('/pdf/' . $slugPrefix) : url('/pdf')) ?>" style="display:flex;gap:8px;flex-wrap:wrap;width:100%;max-width:340px;">
-            <input class="bx-input" style="flex:1 1 180px;min-width:0;max-width:100%;" type="search" name="q" value="<?= e($filterQ) ?>" placeholder="<?= e(t('filter_placeholder')) ?>">
+    <?php if ($currentFolder === null): ?>
+        <form method="get" action="<?= e(url('/pdf')) ?>" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px;max-width:460px;">
+            <input class="bx-input" style="flex:1 1 200px;min-width:0;" type="search" name="q" value="<?= e($filters['q'] ?? '') ?>" placeholder="<?= e(t('filter_placeholder')) ?>" data-suggest-input autocomplete="off">
             <button type="submit" class="bx-btn bx-btn-primary bx-btn-sm"><?= icon('search') ?> <?= e(t('nav_search')) ?></button>
         </form>
-    </div>
+    <?php else: ?>
+        <?= render_filter_sort_bar($actionUrl, $filters, $authors) ?>
+    <?php endif; ?>
 
     <!-- Smooth Loading Skeleton (revealed on folder navigation click) -->
     <div id="bx-folder-skeleton" class="bx-folder-grid" style="display:none;margin-bottom:32px;" aria-hidden="true">
@@ -71,12 +79,15 @@ declare(strict_types=1);
         <?php endif; ?>
 
         <?php if (!empty($items)): ?>
-            <h2 class="bx-h2" style="font-size:1.25rem;margin-bottom:16px;"><?= e(t('pdfs_in_folder')) ?></h2>
-            <div class="bx-book-grid" data-stagger>
+            <h2 class="bx-h2" style="font-size:1.25rem;margin-bottom:16px;">
+                <?= e(t('pdfs_in_folder')) ?> (<?= e(num_localize($totalItems)) ?>)
+            </h2>
+            <div class="bx-book-grid" id="bx-folder-books-grid" data-stagger>
                 <?php foreach ($items as $it): ?>
-                    <?= render_book_card($it) ?>
+                    <?= render_book_card($it, ['highlightQuery' => (string) ($filters['q'] ?? '')]) ?>
                 <?php endforeach; ?>
             </div>
+            <?= render_browse_pagination($basePath, $filters, $page, $totalPages, $totalItems, 'bx-folder-books-grid') ?>
         <?php elseif (empty($subfolders)): ?>
             <div class="bx-empty-state">
                 <?= illustration_svg('empty') ?>

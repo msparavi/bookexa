@@ -114,6 +114,8 @@ $filterQueryPrefix = http_build_query(array_filter([
                 <a href="<?= e(url('/admin/pdfs')) ?>" class="bx-btn bx-btn-ghost"><?= $lang === 'bn' ? 'রিসেট' : 'Reset' ?></a>
             <?php endif; ?>
             <a href="<?= e(url('/admin/pdfs#pdf-form')) ?>" class="bx-btn bx-btn-outline">+ <?= $lang === 'bn' ? 'নতুন PDF' : 'Add PDF' ?></a>
+            <a href="<?= e(url('/admin/import-csv')) ?>" class="bx-btn bx-btn-outline"><?= $lang === 'bn' ? 'CSV ইমপোর্ট' : 'CSV Import' ?></a>
+            <a href="<?= e(url('/admin/prepare-queue')) ?>" class="bx-btn bx-btn-outline"><?= $lang === 'bn' ? 'প্রস্তুত কিউ' : 'Prepare Queue' ?></a>
         </form>
     </section>
 </div>
@@ -129,15 +131,19 @@ $filterQueryPrefix = http_build_query(array_filter([
 <section class="bx-card" style="margin-bottom:24px;">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:14px;">
         <strong><?= $totalCount ?> <?= $lang === 'bn' ? 'টি PDF পাওয়া গেছে' : 'PDF item(s)' ?></strong>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;width:100%;max-width:560px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;width:100%;max-width:740px;">
             <select name="bulk_action" form="bx-bulk-pdf-form" class="bx-input" style="flex:1 1 150px;min-width:0;">
                 <option value=""><?= $lang === 'bn' ? 'বাল্ক অ্যাকশন...' : 'Bulk Action...' ?></option>
                 <option value="activate"><?= $lang === 'bn' ? 'সক্রিয় করুন' : 'Activate Selected' ?></option>
                 <option value="deactivate"><?= $lang === 'bn' ? 'নিষ্ক্রিয় করুন' : 'Deactivate Selected' ?></option>
                 <option value="move"><?= $lang === 'bn' ? 'ফোল্ডারে সরান' : 'Move to Folder' ?></option>
+                <option value="price_set"><?= $lang === 'bn' ? 'মূল্য নির্ধারণ করুন (৳)' : 'Set Price (৳)' ?></option>
+                <option value="price_pct"><?= $lang === 'bn' ? 'শতাংশ ছাড় দিন (%)' : 'Apply % Discount' ?></option>
+                <option value="price_sub"><?= $lang === 'bn' ? 'টাকা ছাড় দিন (-৳)' : 'Apply Fixed Discount (-৳)' ?></option>
                 <option value="delete"><?= $lang === 'bn' ? 'মুছে ফেলুন' : 'Delete Selected' ?></option>
             </select>
-            <select name="target_folder_id" form="bx-bulk-pdf-form" class="bx-input" style="flex:1 1 160px;min-width:0;">
+            <input type="number" step="0.01" min="0" name="bulk_price_val" form="bx-bulk-pdf-form" class="bx-input" style="flex:0 1 120px;min-width:95px;" placeholder="<?= e($lang === 'bn' ? '৳ বা %' : 'Price / %') ?>">
+            <select name="target_folder_id" form="bx-bulk-pdf-form" class="bx-input" style="flex:1 1 150px;min-width:0;">
                 <option value=""><?= $lang === 'bn' ? '(টার্গেট ফোল্ডার)' : '(Target folder if moving)' ?></option>
                 <?php foreach ($folderOptions as $opt): ?>
                     <option value="<?= $opt['id'] ?>"><?= e($opt['label']) ?></option>
@@ -197,11 +203,16 @@ $filterQueryPrefix = http_build_query(array_filter([
                                 </span>
                             </td>
                             <td data-label="<?= e($lang === 'bn' ? 'তথ্য' : 'Source') ?>">
-                                <?php $pgSt = (string) ($p['pages_status'] ?? 'unprocessed'); ?>
+                                <?php $pgSt = (string) ($p['pages_status'] ?? 'unprocessed'); $procSt = (string) ($p['processing_status'] ?? 'idle'); ?>
                                 <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end;">
                                     <span class="bx-status-pill <?= $pgSt === 'ready' ? 'st-active' : 'st-pending' ?>">
                                         <?= $pgSt === 'ready' ? ($lang === 'bn' ? 'পৃষ্ঠা প্রস্তুত (' . (int) $p['total_pages'] . ')' : 'Pages Ready (' . (int) $p['total_pages'] . ')') : ($lang === 'bn' ? 'পৃষ্ঠা অপ্রস্তুত' : ucfirst($pgSt)) ?>
                                     </span>
+                                    <?php if ($procSt === 'processing'): ?>
+                                        <span class="bx-status-pill st-pending"><?= $lang === 'bn' ? 'পুনঃপ্রস্তুত চলছে' : 'Re-preparing...' ?></span>
+                                    <?php elseif ($procSt === 'failed'): ?>
+                                        <span class="bx-status-pill st-rejected"><?= $lang === 'bn' ? 'পুনঃপ্রস্তুতি ব্যর্থ' : 'Prep Failed' ?></span>
+                                    <?php endif; ?>
                                     <span class="bx-badge"><?= $isDemo ? 'Local Demo' : 'Drive Protected' ?></span>
                                     <span class="bx-badge" title="Wishlist count">♥ <?= (int) ($p['wishlist_count'] ?? 0) ?></span>
                                     <?php if ($noCover): ?><span class="bx-status-pill st-pending"><?= $lang === 'bn' ? 'কভার নেই' : 'No Cover' ?></span><?php endif; ?>
@@ -367,11 +378,22 @@ $filterQueryPrefix = http_build_query(array_filter([
             <div class="bx-grid-2" style="gap:12px;margin-bottom:14px;">
                 <div>
                     <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'কভার ছবি (ক্যামেরা/গ্যালারি)' : 'Cover Image (Camera / Gallery)' ?></label>
-                    <input type="file" name="cover" accept="image/*" class="bx-input" data-preview-target="pv-pdf-cover">
+                    <input type="file" name="cover" accept="image/jpeg,image/png,image/webp" class="bx-input" data-preview-target="pv-pdf-cover">
                 </div>
                 <div>
                     <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'মোট পৃষ্ঠা' : 'Total Pages' ?></label>
                     <input type="number" min="1" inputmode="numeric" name="total_pages" class="bx-input" value="<?= e((string) ($editPdf['total_pages'] ?? '')) ?>">
+                </div>
+            </div>
+
+            <div class="bx-grid-2" style="gap:12px;margin-bottom:12px;">
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'প্রকাশের সময় (Publish At)' : 'Publish At (Optional)' ?></label>
+                    <input type="datetime-local" name="publish_at" class="bx-input" value="<?= e(!empty($editPdf['publish_at']) ? date('Y-m-d\TH:i', strtotime((string) $editPdf['publish_at'])) : '') ?>">
+                </div>
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'অপ্রকাশের সময় (Unpublish At)' : 'Unpublish At (Optional)' ?></label>
+                    <input type="datetime-local" name="unpublish_at" class="bx-input" value="<?= e(!empty($editPdf['unpublish_at']) ? date('Y-m-d\TH:i', strtotime((string) $editPdf['unpublish_at'])) : '') ?>">
                 </div>
             </div>
 

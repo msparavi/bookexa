@@ -57,6 +57,61 @@ function page_storage_dir(int $itemId): string
     return APP_ROOT . '/storage/pages/' . $itemId;
 }
 
+function page_staging_dir(int $itemId): string
+{
+    return APP_ROOT . '/storage/pages/' . $itemId . '_new';
+}
+
+function rrmdir_recursive(string $dir): void
+{
+    if (!is_dir($dir)) {
+        return;
+    }
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::CHILD_FIRST
+    );
+    foreach ($it as $entry) {
+        $entry->isDir() ? @rmdir($entry->getPathname()) : @unlink($entry->getPathname());
+    }
+    @rmdir($dir);
+}
+
+function find_staging_page_file(int $itemId, int $pageNum): ?string
+{
+    $dir = page_staging_dir($itemId);
+    foreach (['webp', 'jpg'] as $ext) {
+        $p = $dir . '/page-' . $pageNum . '.' . $ext;
+        if (is_file($p)) {
+            return $p;
+        }
+    }
+    return null;
+}
+
+function atomic_swap_prepared_pages(int $itemId): void
+{
+    $stagingDir = page_staging_dir($itemId);
+    $liveDir    = page_storage_dir($itemId);
+    $oldDir     = APP_ROOT . '/storage/pages/' . $itemId . '_old_' . bin2hex(random_bytes(3));
+    if (!is_dir($stagingDir)) {
+        throw new RuntimeException('Staging directory missing.');
+    }
+    $hadLive = is_dir($liveDir);
+    if ($hadLive && !@rename($liveDir, $oldDir)) {
+        throw new RuntimeException('Could not prepare live folder swap.');
+    }
+    if (!@rename($stagingDir, $liveDir)) {
+        if ($hadLive && is_dir($oldDir)) {
+            @rename($oldDir, $liveDir);
+        }
+        throw new RuntimeException('Atomic page directory swap failed.');
+    }
+    if ($hadLive && is_dir($oldDir)) {
+        rrmdir_recursive($oldDir);
+    }
+}
+
 function ensure_pages_htaccess(): void
 {
     $rootDir = APP_ROOT . '/storage/pages';
@@ -125,6 +180,72 @@ function issue_signed_reader_token(int $userId, int $itemId, bool $isSample, str
     return $fullToken;
 }
 
+function user_reading_suspension_message(string $untilDatetime): string
+{
+    $mins = max(1, (int) ceil((strtotime($untilDatetime) - time()) / 60));
+    return current_lang() === 'bn'
+        ? "সন্দেহজনক কার্যকলাপের কারণে আপনার পাঠ সুবিধা সাময়িকভাবে {$mins} মিনিটের জন্য স্থগিত করা হয়েছে। অনুগ্রহ করে পরে আবার চেষ্টা করুন।"
+        : "Reading access is temporarily paused for {$mins} minute(s) due to unusual activity. Please try again later.";
+}
+
+function notify_admin_reader_suspension(int $userId, int $anomalyCount, string $lastAction): void
+{
+    $u = db_one('SELECT name, email, phone FROM users WHERE id = ? LIMIT 1', [$userId]);
+    $ident = $u ? ($u['name'] . ' (' . ($u['email'] ?: ($u['phone'] ?? "ID #{$userId}")) . ')') : "User #{$userId}";
+    $msg = "Auto-suspended reading for 30m after {$anomalyCount} anomalies (latest: {$lastAction})";
+    try {
+        db_exec(
+            'INSERT INTO security_logs (event_type, identifier, ip_address, details) VALUES (?, ?, ?, ?)',
+            ['reader_auto_suspended', substr($ident, 0, 190), client_ip(), substr($msg, 0, 250)]
+        );
+    } catch (Throwable $e) {
+    }
+    $adminEmail = trim((string) (site_setting('contact_email', '') ?: site_setting('smtp_from_email', '')));
+    if ($adminEmail !== '' && filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
+        require_once APP_ROOT . '/includes/mailer.php';
+        try {
+            send_bookexa_template_mail(
+                $adminEmail,
+                'Bookexa Security Alert: Reader Auto-Suspended',
+                'Reader Reading Access Paused (30 Minutes)',
+                '<p>User <strong>' . e($ident) . '</strong> was automatically suspended from reading for 30 minutes after ' . $anomalyCount . ' anomalies in 10 minutes (latest: <code>' . e($lastAction) . '</code>).</p>',
+                BASE_URL . '/admin/logs?type=suspicious',
+                'Inspect Security Logs'
+            );
+        } catch (Throwable $e) {
+        }
+    }
+}
+
+function record_reader_anomaly(int $userId, ?int $itemId, bool $isSample, string $action, string $details): bool
+{
+    log_reading_event($userId, $itemId, $isSample, $action, $details);
+    if (!in_array($action, ['fast_sequential_burst', 'many_sessions_anomaly', 'page_out_of_range'], true)) {
+        return false;
+    }
+    try {
+        $cnt = (int) (db_one(
+            "SELECT COUNT(*) AS c FROM reading_logs
+             WHERE user_id = ?
+               AND action IN ('fast_sequential_burst', 'many_sessions_anomaly', 'page_out_of_range')
+               AND created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)",
+            [$userId]
+        )['c'] ?? 0);
+        if ($cnt > 3) {
+            $uRow = db_one('SELECT reading_suspended_until FROM users WHERE id = ? LIMIT 1', [$userId]);
+            $alreadySuspended = $uRow && !empty($uRow['reading_suspended_until']) && strtotime((string) $uRow['reading_suspended_until']) > (time() + 1500);
+            db_exec('UPDATE users SET reading_suspended_until = DATE_ADD(NOW(), INTERVAL 30 MINUTE) WHERE id = ?', [$userId]);
+            if (!$alreadySuspended) {
+                log_reading_event($userId, $itemId, $isSample, 'reading_suspended', "Auto-suspended 30m after {$cnt} anomalies in 10m");
+                notify_admin_reader_suspension($userId, $cnt, $action);
+            }
+            return true;
+        }
+    } catch (Throwable $e) {
+    }
+    return false;
+}
+
 /**
  * Detect abnormal rapid multi-session switching within the last hour.
  */
@@ -149,7 +270,7 @@ function detect_many_sessions_anomaly(int $userId): void
                 [$userId]
             );
             if (!$recent) {
-                log_reading_event($userId, null, false, 'many_sessions_anomaly', "opens={$opens}/h, kicks={$kicks}/h");
+                record_reader_anomaly($userId, null, false, 'many_sessions_anomaly', "opens={$opens}/h, kicks={$kicks}/h");
             }
         }
     } catch (Throwable $e) {
@@ -177,7 +298,7 @@ function track_fast_sequential_burst(int $userId, int $itemId, int $pageNum): vo
     $distinctPages = count(array_unique(array_column($events, 'p')));
     $lastAlert = (int) ($bucket['last_alert'] ?? 0);
     if ($distinctPages >= 12 && ($now - $lastAlert) >= 60) {
-        log_reading_event($userId, $itemId, false, 'fast_sequential_burst', "{$distinctPages} distinct pages fetched within 10s");
+        record_reader_anomaly($userId, $itemId, false, 'fast_sequential_burst', "{$distinctPages} distinct pages fetched within 10s");
         $lastAlert = $now;
     }
     $_SESSION['bx_page_burst'][$itemId] = ['events' => $events, 'last_alert' => $lastAlert];
@@ -896,6 +1017,12 @@ function handle_stream_pdf(): never
     }
 
     $uid = (int) $user['id'];
+    if (!empty($user['reading_suspended_until']) && strtotime((string) $user['reading_suspended_until']) > time()) {
+        http_response_code(403);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'READING_SUSPENDED', 'message' => user_reading_suspension_message((string) $user['reading_suspended_until'])]);
+        exit;
+    }
 
     // Anti-hotlinking & direct browser navigation check
     if (($_SERVER['HTTP_X_BOOKEXA_READER'] ?? '') !== '1') {
@@ -1172,17 +1299,51 @@ function handle_reader_progress(): never
         db_exec('UPDATE users SET reader_zoom = ? WHERE id = ?', [$zoom, $uid]);
     }
 
-    if ($itemId > 0 && !$isSample && isset($_POST['last_page'])) {
-        $lastPage = max(1, (int) $_POST['last_page']);
-        $totalPages = max(1, (int) ($_POST['total_pages'] ?? 1));
-        db_exec(
-            'INSERT INTO reading_progress (user_id, item_id, last_page, total_pages) VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE last_page = VALUES(last_page), total_pages = VALUES(total_pages)',
-            [$uid, $itemId, $lastPage, $totalPages]
-        );
+    if ($itemId > 0 && !$isSample) {
+        $deltaSec = min(120, max(0, (int) ($_POST['delta_sec'] ?? 0)));
+        if (isset($_POST['last_page']) || isset($_POST['page'])) {
+            $lastPage   = max(1, (int) ($_POST['last_page'] ?? $_POST['page']));
+            $totalPages = max(1, (int) ($_POST['total_pages'] ?? 1));
+            $isFin      = ($lastPage >= $totalPages) ? 1 : 0;
+            db_exec(
+                'INSERT INTO reading_progress (user_id, item_id, last_page, total_pages, time_spent_sec, is_finished)
+                 VALUES (?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE
+                     last_page = VALUES(last_page),
+                     total_pages = VALUES(total_pages),
+                     time_spent_sec = time_spent_sec + VALUES(time_spent_sec),
+                     is_finished = GREATEST(is_finished, VALUES(is_finished))',
+                [$uid, $itemId, $lastPage, $totalPages, $deltaSec, $isFin]
+            );
+        } elseif ($deltaSec > 0) {
+            db_exec(
+                'UPDATE reading_progress SET time_spent_sec = time_spent_sec + ? WHERE user_id = ? AND item_id = ?',
+                [$deltaSec, $uid, $itemId]
+            );
+        }
     }
     echo json_encode(['ok' => true]);
     exit;
+}
+
+function user_reading_stats(int $userId): array
+{
+    if ($userId <= 0) {
+        return ['pages_read' => 0, 'books_finished' => 0, 'time_spent_sec' => 0];
+    }
+    $row = db_one(
+        'SELECT COALESCE(SUM(last_page), 0) AS pages_read,
+                COALESCE(SUM(CASE WHEN is_finished = 1 OR (total_pages > 0 AND last_page >= total_pages) THEN 1 ELSE 0 END), 0) AS books_finished,
+                COALESCE(SUM(time_spent_sec), 0) AS time_spent_sec
+         FROM reading_progress
+         WHERE user_id = ?',
+        [$userId]
+    );
+    return [
+        'pages_read'     => (int) ($row['pages_read'] ?? 0),
+        'books_finished' => (int) ($row['books_finished'] ?? 0),
+        'time_spent_sec' => (int) ($row['time_spent_sec'] ?? 0),
+    ];
 }
 
 /**
@@ -1207,84 +1368,316 @@ function find_watermark_ttf_font(): ?string
 }
 
 /**
- * Burn a repeated diagonal per-user watermark into a rendered page image via PHP GD and output WebP/JPEG bytes.
+ * Ensure a cache subdirectory under storage/cache/ exists with an Apache Deny-all .htaccess.
  */
-function output_watermarked_page_image(string $srcPath, string $watermarkBase): bool
+function ensure_protected_cache_subdir(string $sub): string
+{
+    $dir = APP_ROOT . '/storage/cache/' . trim($sub, '/');
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0755, true);
+    }
+    $ht = $dir . '/.htaccess';
+    if (!is_file($ht)) {
+        @file_put_contents($ht, "<IfModule mod_authz_core.c>\n    Require all denied\n</IfModule>\n<IfModule !mod_authz_core.c>\n    Order allow,deny\n    Deny from all\n</IfModule>\n");
+    }
+    return $dir;
+}
+
+/**
+ * Lock-file counter guard limiting concurrent /api/page GD renders across shared-hosting workers.
+ */
+function acquire_page_render_slot(?int $limitOverride = null): ?string
+{
+    $limit = $limitOverride ?? max(1, min(64, (int) site_setting('max_concurrent_page_renders', '8')));
+    $lockDir = ensure_protected_cache_subdir('locks');
+    $lockPath = $lockDir . '/render_busy.lock';
+    $fh = @fopen($lockPath, 'c+b');
+    if (!$fh) {
+        return 'unmanaged';
+    }
+    if (!@flock($fh, LOCK_EX)) {
+        @fclose($fh);
+        return 'unmanaged';
+    }
+
+    $raw = stream_get_contents($fh);
+    $active = $raw ? json_decode($raw, true) : [];
+    if (!is_array($active)) {
+        $active = [];
+    }
+    $now = microtime(true);
+    // Prune stale slots > 25s old in case a PHP worker crashed unexpectedly
+    foreach ($active as $tok => $ts) {
+        if (!is_numeric($ts) || ($now - (float) $ts) > 25.0) {
+            unset($active[$tok]);
+        }
+    }
+    if (count($active) >= $limit) {
+        @flock($fh, LOCK_UN);
+        @fclose($fh);
+        return null;
+    }
+
+    $token = bin2hex(random_bytes(8));
+    $active[$token] = $now;
+    rewind($fh);
+    ftruncate($fh, 0);
+    fwrite($fh, (string) json_encode($active));
+    fflush($fh);
+    @flock($fh, LOCK_UN);
+    @fclose($fh);
+
+    return $token;
+}
+
+function release_page_render_slot(?string $token): void
+{
+    if ($token === null || $token === '' || $token === 'unmanaged') {
+        return;
+    }
+    $lockPath = APP_ROOT . '/storage/cache/locks/render_busy.lock';
+    $fh = @fopen($lockPath, 'c+b');
+    if (!$fh) {
+        return;
+    }
+    if (@flock($fh, LOCK_EX)) {
+        $raw = stream_get_contents($fh);
+        $active = $raw ? json_decode($raw, true) : [];
+        if (is_array($active) && isset($active[$token])) {
+            unset($active[$token]);
+            rewind($fh);
+            ftruncate($fh, 0);
+            fwrite($fh, (string) json_encode($active));
+            fflush($fh);
+        }
+        @flock($fh, LOCK_UN);
+    }
+    @fclose($fh);
+}
+
+/**
+ * Draw tiled diagonal watermark text onto a transparent or target GD canvas.
+ */
+function draw_tiled_watermark_on_canvas($canvas, int $w, int $h, string $stamp): void
+{
+    $color = imagecolorallocatealpha($canvas, 180, 42, 32, 102); // ~20% opacity diagonal crimson-rust
+    $fontPath = find_watermark_ttf_font();
+
+    if ($fontPath !== null && function_exists('imagettftext')) {
+        $fontSize = max(12, min(26, (int) round($w * 0.0155)));
+        $stepX = max(300, (int) round($w * 0.42));
+        $stepY = max(160, (int) round($h * 0.19));
+        for ($y = (int) round($stepY * 0.4); $y <= $h + $stepY; $y += $stepY) {
+            $offsetX = ((int) floor($y / $stepY) % 2 === 1) ? (int) round($stepX * 0.35) : 20;
+            for ($x = $offsetX; $x <= $w + 200; $x += $stepX) {
+                @imagettftext($canvas, $fontSize, 26, $x, $y, $color, $fontPath, $stamp);
+            }
+        }
+        return;
+    }
+
+    $asciiStamp = preg_replace('/[^\x20-\x7E]/', '?', $stamp) ?: 'Bookexa Protected';
+    $tw = max(180, strlen($asciiStamp) * 9 + 16);
+    $th = 24;
+    $tile = imagecreatetruecolor($tw, $th);
+    imagealphablending($tile, false);
+    $trans = imagecolorallocatealpha($tile, 255, 255, 255, 127);
+    imagefill($tile, 0, 0, $trans);
+    imagesavealpha($tile, true);
+    $tc = imagecolorallocatealpha($tile, 180, 42, 32, 92);
+    imagestring($tile, 4, 8, 4, $asciiStamp, $tc);
+    $rot = @imagerotate($tile, 26, $trans);
+    imagedestroy($tile);
+    if ($rot) {
+        $rw = imagesx($rot);
+        $rh = imagesy($rot);
+        $stepX = max(250, (int) round($w * 0.40));
+        $stepY = max(150, (int) round($h * 0.18));
+        for ($y = 20; $y < $h; $y += $stepY) {
+            for ($x = 20; $x < $w; $x += $stepX) {
+                imagecopy($canvas, $rot, $x, $y, 0, 0, $rw, $rh);
+            }
+        }
+        imagedestroy($rot);
+    }
+}
+
+/**
+ * Load or build a 1-hour cached transparent PNG watermark overlay keyed by user ID, name, contact, and page dimensions.
+ */
+function get_cached_watermark_overlay(int $userId, string $userName, string $contact, int $w, int $h, string $watermarkBase)
+{
+    $wmDir = ensure_protected_cache_subdir('wm');
+    $cacheKey = hash('sha256', $userId . '|' . $userName . '|' . $contact . '|' . $w . 'x' . $h);
+    $wmPath = $wmDir . '/' . $cacheKey . '.png';
+
+    if (is_file($wmPath) && (time() - (int) @filemtime($wmPath)) < 3600) {
+        $cached = @imagecreatefrompng($wmPath);
+        if ($cached && imagesx($cached) === $w && imagesy($cached) === $h) {
+            return $cached;
+        }
+        if ($cached) {
+            imagedestroy($cached);
+        }
+    }
+
+    $overlay = imagecreatetruecolor($w, $h);
+    if (!$overlay) {
+        return null;
+    }
+    imagealphablending($overlay, false);
+    $trans = imagecolorallocatealpha($overlay, 255, 255, 255, 127);
+    imagefill($overlay, 0, 0, $trans);
+    imagealphablending($overlay, true);
+    imagesavealpha($overlay, true);
+
+    $stamp = $watermarkBase . ' • ' . date('Y-m-d H:i');
+    draw_tiled_watermark_on_canvas($overlay, $w, $h, $stamp);
+
+    $tmpPath = $wmPath . '.' . bin2hex(random_bytes(6)) . '.tmp';
+    if (@imagepng($overlay, $tmpPath, 1, PNG_NO_FILTER)) {
+        if (!@rename($tmpPath, $wmPath)) {
+            @unlink($tmpPath);
+        }
+    } else {
+        @unlink($tmpPath);
+    }
+    return $overlay;
+}
+
+/**
+ * Resolve optional pre-scaled <=1000px cached clean page variant for small phone screens.
+ */
+function resolve_page_variant_source(string $srcPath, int $itemId, int $pageNum, int $maxWidth): string
+{
+    if ($maxWidth <= 0 || $maxWidth > 1000 || $itemId <= 0 || $pageNum <= 0 || !extension_loaded('gd')) {
+        return $srcPath;
+    }
+    $info = @getimagesize($srcPath);
+    if (!$info || (int) $info[0] <= $maxWidth) {
+        return $srcPath;
+    }
+    $varDir = ensure_protected_cache_subdir('variants/' . $itemId);
+    $ext = function_exists('imagewebp') ? 'webp' : 'jpg';
+    $varPath = $varDir . '/p' . $pageNum . '_w' . $maxWidth . '.' . $ext;
+    if (is_file($varPath) && (@filemtime($varPath) ?: 0) >= (@filemtime($srcPath) ?: 0) && (@filesize($varPath) ?: 0) > 128) {
+        return $varPath;
+    }
+
+    $bytes = @file_get_contents($srcPath);
+    $im = ($bytes !== false && $bytes !== '') ? @imagecreatefromstring($bytes) : false;
+    if (!$im) {
+        return $srcPath;
+    }
+    $scaled = @imagescale($im, $maxWidth, -1, IMG_BILINEAR_FIXED);
+    imagedestroy($im);
+    if (!$scaled) {
+        return $srcPath;
+    }
+    $tmp = $varPath . '.' . bin2hex(random_bytes(6)) . '.tmp';
+    $saved = $ext === 'webp' ? @imagewebp($scaled, $tmp, 82) : @imagejpeg($scaled, $tmp, 85);
+    imagedestroy($scaled);
+    if ($saved && @rename($tmp, $varPath)) {
+        return $varPath;
+    }
+    @unlink($tmp);
+    return (is_file($varPath) && (@filesize($varPath) ?: 0) > 128) ? $varPath : $srcPath;
+}
+
+function client_prefers_webp(): bool
+{
+    if (!function_exists('imagewebp')) {
+        return false;
+    }
+    $accept = strtolower((string) ($_SERVER['HTTP_ACCEPT'] ?? ''));
+    if ($accept !== '' && !str_contains($accept, 'image/webp') && !str_contains($accept, '*/*') && (str_contains($accept, 'image/jpeg') || str_contains($accept, 'image/png'))) {
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Composite cached per-user transparent PNG watermark (or fallback TTF draw) and emit WebP q=78 / JPEG.
+ */
+function output_watermarked_page_image(string $srcPath, string $watermarkBase, array $opts = []): bool
 {
     if (!extension_loaded('gd')) {
         return false;
     }
-    $bytes = @file_get_contents($srcPath);
-    if ($bytes === false || $bytes === '') {
-        return false;
+    $origSrc  = $srcPath;
+    $itemId   = (int) ($opts['item_id'] ?? 0);
+    $pageNum  = (int) ($opts['page_num'] ?? 0);
+    $maxWidth = (int) ($opts['max_width'] ?? 0);
+    if ($maxWidth > 0 && $maxWidth <= 1000 && $itemId > 0 && $pageNum > 0) {
+        $srcPath = resolve_page_variant_source($origSrc, $itemId, $pageNum, $maxWidth);
     }
-    $im = @imagecreatefromstring($bytes);
+
+    $bytes = @file_get_contents($srcPath);
+    $im = ($bytes !== false && $bytes !== '') ? @imagecreatefromstring($bytes) : false;
+    if (!$im && $srcPath !== $origSrc) {
+        $bytes = @file_get_contents($origSrc);
+        $im = ($bytes !== false && $bytes !== '') ? @imagecreatefromstring($bytes) : false;
+    }
     if (!$im) {
         return false;
     }
-    imagealphablending($im, true);
-    imagesavealpha($im, false);
 
     $w = imagesx($im);
     $h = imagesy($im);
-    $stamp = $watermarkBase . ' • ' . date('Y-m-d H:i');
-    $color = imagecolorallocatealpha($im, 180, 42, 32, 102); // ~20% opacity diagonal crimson-rust
-    $fontPath = find_watermark_ttf_font();
-
-    if ($fontPath !== null && function_exists('imagettftext')) {
-        $fontSize = max(13, min(26, (int) round($w * 0.0155)));
-        $stepX = max(320, (int) round($w * 0.42));
-        $stepY = max(170, (int) round($h * 0.19));
-        for ($y = (int) round($stepY * 0.4); $y <= $h + $stepY; $y += $stepY) {
-            $offsetX = ((int) floor($y / $stepY) % 2 === 1) ? (int) round($stepX * 0.35) : 20;
-            for ($x = $offsetX; $x <= $w + 200; $x += $stepX) {
-                @imagettftext($im, $fontSize, 26, $x, $y, $color, $fontPath, $stamp);
-            }
-        }
-    } else {
-        // Fallback rotated bitmap text if server has no TTF files installed
-        $asciiStamp = preg_replace('/[^\x20-\x7E]/', '?', $stamp) ?: 'Bookexa Protected';
-        $tw = max(180, strlen($asciiStamp) * 9 + 16);
-        $th = 24;
-        $tile = imagecreatetruecolor($tw, $th);
-        imagealphablending($tile, false);
-        $trans = imagecolorallocatealpha($tile, 255, 255, 255, 127);
-        imagefill($tile, 0, 0, $trans);
-        imagesavealpha($tile, true);
-        $tc = imagecolorallocatealpha($tile, 180, 42, 32, 92);
-        imagestring($tile, 4, 8, 4, $asciiStamp, $tc);
-        $rot = @imagerotate($tile, 26, $trans);
-        imagedestroy($tile);
-        if ($rot) {
-            $rw = imagesx($rot);
-            $rh = imagesy($rot);
-            $stepX = max(260, (int) round($w * 0.40));
-            $stepY = max(160, (int) round($h * 0.18));
-            for ($y = 20; $y < $h; $y += $stepY) {
-                for ($x = 20; $x < $w; $x += $stepX) {
-                    imagecopy($im, $rot, $x, $y, 0, 0, $rw, $rh);
-                }
-            }
-            imagedestroy($rot);
+    if ($maxWidth > 0 && $maxWidth <= 1000 && $w > $maxWidth) {
+        $scaled = @imagescale($im, $maxWidth, -1, IMG_BILINEAR_FIXED);
+        if ($scaled) {
+            imagedestroy($im);
+            $im = $scaled;
+            $w = imagesx($im);
+            $h = imagesy($im);
         }
     }
 
-    if (function_exists('imagewebp')) {
+    imagealphablending($im, true);
+    imagesavealpha($im, false);
+
+    $useWmCache = !array_key_exists('use_wm_cache', $opts) || !empty($opts['use_wm_cache']);
+    $userId     = (int) ($opts['user_id'] ?? 0);
+    $userName   = (string) ($opts['user_name'] ?? '');
+    $contact    = (string) ($opts['contact'] ?? '');
+
+    if ($useWmCache && $userId > 0) {
+        $wmOverlay = get_cached_watermark_overlay($userId, $userName, $contact, $w, $h, $watermarkBase);
+        if ($wmOverlay) {
+            imagecopy($im, $wmOverlay, 0, 0, 0, 0, $w, $h);
+            imagedestroy($wmOverlay);
+        } else {
+            draw_tiled_watermark_on_canvas($im, $w, $h, $watermarkBase . ' • ' . date('Y-m-d H:i'));
+        }
+    } else {
+        draw_tiled_watermark_on_canvas($im, $w, $h, $watermarkBase . ' • ' . date('Y-m-d H:i'));
+    }
+
+    $useWebp = array_key_exists('webp_supported', $opts)
+        ? ($opts['webp_supported'] && function_exists('imagewebp'))
+        : client_prefers_webp();
+
+    if (!empty($opts['return_bytes'])) {
+        ob_start();
+        $ok = $useWebp ? imagewebp($im, null, 78) : imagejpeg($im, null, 80);
+        $rawOut = (string) ob_get_clean();
+        imagedestroy($im);
+        return $ok && $rawOut !== '';
+    }
+
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    header('Pragma: no-cache');
+    header('Expires: 0');
+    header('X-Content-Type-Options: nosniff');
+    header('X-Robots-Tag: noindex, nofollow');
+    header('Vary: Accept');
+    if ($useWebp) {
         header('Content-Type: image/webp');
-        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-        header('Pragma: no-cache');
-        header('Expires: 0');
-        header('X-Content-Type-Options: nosniff');
-        header('X-Robots-Tag: noindex, nofollow');
-        $ok = imagewebp($im, null, 82);
+        $ok = imagewebp($im, null, 78);
     } else {
         header('Content-Type: image/jpeg');
-        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-        header('Pragma: no-cache');
-        header('Expires: 0');
-        header('X-Content-Type-Options: nosniff');
-        header('X-Robots-Tag: noindex, nofollow');
-        $ok = imagejpeg($im, null, 84);
+        $ok = imagejpeg($im, null, 80);
     }
     imagedestroy($im);
     return $ok;
@@ -1308,6 +1701,12 @@ function handle_protected_page(): never
         http_response_code(403);
         header('Content-Type: application/json');
         echo json_encode(['error' => 'USER_BLOCKED']);
+        exit;
+    }
+    if (!empty($user['reading_suspended_until']) && strtotime((string) $user['reading_suspended_until']) > time()) {
+        http_response_code(403);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'READING_SUSPENDED', 'message' => user_reading_suspension_message((string) $user['reading_suspended_until'])]);
         exit;
     }
 
@@ -1437,11 +1836,46 @@ function handle_protected_page(): never
         : $preparedCount;
 
     if ($pageNum < 1 || $pageNum > $maxAllowed) {
-        log_reading_event($uid, $itemId, $isSample, 'page_out_of_range', "Requested page={$pageNum} (maxAllowed={$maxAllowed})");
+        $suspendedNow = record_reader_anomaly($uid, $itemId, $isSample, 'page_out_of_range', "Requested page={$pageNum} (maxAllowed={$maxAllowed})");
         http_response_code(403);
         header('Content-Type: application/json');
-        echo json_encode(['error' => 'PAGE_OUT_OF_RANGE']);
+        if ($suspendedNow) {
+            $freshU = db_one('SELECT reading_suspended_until FROM users WHERE id = ?', [$uid]);
+            echo json_encode(['error' => 'READING_SUSPENDED', 'message' => user_reading_suspension_message((string) ($freshU['reading_suspended_until'] ?? date('Y-m-d H:i:s', time() + 1800)))]);
+        } else {
+            echo json_encode(['error' => 'PAGE_OUT_OF_RANGE']);
+        }
         exit;
+    }
+
+    // Configurable daily page quota per item per user (default 3x total pages)
+    $quotaMult = max(0, (int) site_setting('reader_daily_quota_mult', '3'));
+    if ($quotaMult > 0) {
+        $bookTotal = max(1, (int) ($item['total_pages'] ?: $preparedCount));
+        $dailyCap = $bookTotal * $quotaMult;
+        $usageRow = db_one(
+            'SELECT page_hits FROM reading_daily_usage WHERE user_id = ? AND item_id = ? AND usage_date = CURDATE() LIMIT 1',
+            [$uid, $itemId]
+        );
+        $usedToday = (int) ($usageRow['page_hits'] ?? 0);
+        if ($usedToday >= $dailyCap) {
+            $recentQ = db_one(
+                "SELECT id FROM reading_logs WHERE user_id = ? AND item_id = ? AND action = 'daily_quota_exceeded' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 MINUTE) LIMIT 1",
+                [$uid, $itemId]
+            );
+            if (!$recentQ) {
+                log_reading_event($uid, $itemId, $isSample, 'daily_quota_exceeded', "Daily limit {$usedToday}/{$dailyCap} reached");
+            }
+            http_response_code(429);
+            header('Content-Type: application/json');
+            echo json_encode([
+                'error'   => 'DAILY_QUOTA_EXCEEDED',
+                'message' => current_lang() === 'bn'
+                    ? "এই বইয়ের আজকের দৈনিক পঠন সীমা ({$dailyCap} পৃষ্ঠা) পূর্ণ হয়েছে। আগামীকাল আবার পড়তে পারবেন।"
+                    : "Daily page reading limit ({$dailyCap} pages) reached for this book. Please continue tomorrow.",
+            ]);
+            exit;
+        }
     }
 
     $srcFile = find_prepared_page_file($itemId, $pageNum);
@@ -1452,13 +1886,55 @@ function handle_protected_page(): never
         exit;
     }
 
+    if ($quotaMult > 0) {
+        db_exec(
+            'INSERT INTO reading_daily_usage (user_id, item_id, usage_date, page_hits) VALUES (?, ?, CURDATE(), 1)
+             ON DUPLICATE KEY UPDATE page_hits = page_hits + 1',
+            [$uid, $itemId]
+        );
+    }
+
     // Track abnormally fast sequential page bursts
     track_fast_sequential_burst($uid, $itemId, $pageNum);
 
     $contact = !empty($user['phone']) ? $user['phone'] : $user['email'];
     $watermarkBase = $user['name'] . ' • ' . $contact . ' • ID #' . $uid;
 
-    if (!output_watermarked_page_image($srcFile, $watermarkBase)) {
+    $reqMaxW = (int) ($_GET['maxw'] ?? ($_SERVER['HTTP_X_BOOKEXA_MAX_WIDTH'] ?? 0));
+    if ($reqMaxW > 0 && $reqMaxW <= 1000) {
+        $maxWidth = 1000;
+    } else {
+        $maxWidth = 0;
+    }
+
+    $slotToken = acquire_page_render_slot();
+    if ($slotToken === null) {
+        http_response_code(503);
+        header('Content-Type: application/json; charset=UTF-8');
+        header('Retry-After: 2');
+        header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+        echo json_encode([
+            'error'   => 'SERVER_BUSY',
+            'message' => current_lang() === 'bn'
+                ? 'সার্ভার এই মুহূর্তে অনেক পৃষ্ঠা প্রসেস করছে। ২ সেকেন্ড পর আবার চেষ্টা করা হচ্ছে।'
+                : 'Server is temporarily busy rendering pages. Retrying shortly.',
+        ]);
+        exit;
+    }
+    register_shutdown_function(static function () use ($slotToken): void {
+        release_page_render_slot($slotToken);
+    });
+
+    $rendered = output_watermarked_page_image($srcFile, $watermarkBase, [
+        'user_id'   => $uid,
+        'user_name' => (string) $user['name'],
+        'contact'   => (string) $contact,
+        'item_id'   => $itemId,
+        'page_num'  => $pageNum,
+        'max_width' => $maxWidth,
+    ]);
+    release_page_render_slot($slotToken);
+    if (!$rendered) {
         http_response_code(500);
         header('Content-Type: application/json');
         echo json_encode(['error' => 'WATERMARK_RENDER_ERROR', 'message' => 'Server image rendering failed (PHP GD required).']);
@@ -1483,5 +1959,192 @@ function handle_reader_security_event(): never
     }
     log_reading_event((int) $user['id'], $itemId, false, $event, 'Client deterrence trigger');
     echo json_encode(['ok' => true]);
+    exit;
+}
+
+function handle_reader_bookmarks(): never
+{
+    header('Content-Type: application/json; charset=UTF-8');
+    header('Cache-Control: no-store');
+    $user = current_user();
+    if (!$user) {
+        http_response_code(401);
+        echo json_encode(['ok' => false, 'error' => 'AUTH_REQUIRED']);
+        exit;
+    }
+    $uid = (int) $user['id'];
+
+    if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+        verify_csrf();
+        $act    = (string) ($_POST['action'] ?? 'save');
+        $itemId = (int) ($_POST['item_id'] ?? 0);
+        $page   = max(1, (int) ($_POST['page_num'] ?? 1));
+        if ($itemId <= 0 || !db_one('SELECT id FROM items WHERE id = ? AND is_active = 1 LIMIT 1', [$itemId])) {
+            http_response_code(404);
+            echo json_encode(['ok' => false, 'message' => 'Book not found']);
+            exit;
+        }
+        if ($act === 'delete') {
+            db_exec('DELETE FROM reader_bookmarks WHERE user_id = ? AND item_id = ? AND page_num = ?', [$uid, $itemId, $page]);
+        } else {
+            $label = trim((string) ($_POST['label'] ?? ''));
+            if ($label === '') {
+                $label = (current_lang() === 'bn' ? 'পৃষ্ঠা ' : 'Page ') . $page;
+            }
+            $label = mb_substr($label, 0, 120);
+            db_exec(
+                'INSERT INTO reader_bookmarks (user_id, item_id, page_num, label) VALUES (?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE label = VALUES(label)',
+                [$uid, $itemId, $page, $label]
+            );
+        }
+        $list = db_all('SELECT id, page_num, label, created_at FROM reader_bookmarks WHERE user_id = ? AND item_id = ? ORDER BY page_num ASC', [$uid, $itemId]);
+        echo json_encode(['ok' => true, 'bookmarks' => $list]);
+        exit;
+    }
+
+    $itemId = (int) ($_GET['item_id'] ?? 0);
+    $list = $itemId > 0
+        ? db_all('SELECT id, page_num, label, created_at FROM reader_bookmarks WHERE user_id = ? AND item_id = ? ORDER BY page_num ASC', [$uid, $itemId])
+        : [];
+    echo json_encode(['ok' => true, 'bookmarks' => $list]);
+    exit;
+}
+
+/**
+ * Verify HMAC signature, session binding, and DB expiry for a reader pages token.
+ */
+function verify_signed_reader_token(string $rawToken, int $uid, int $itemId): ?array
+{
+    if (!preg_match('/^([A-Za-z0-9_-]+)\.([a-f0-9]{64})$/', $rawToken, $tm)) {
+        return null;
+    }
+    $secret = (string) app_config('security.app_secret', 'bookexa_fallback_secret');
+    $expectedSig = hash_hmac('sha256', $tm[1], $secret);
+    if (!hash_equals($expectedSig, $tm[2])) {
+        return null;
+    }
+    $payloadJson = b64url_decode($tm[1]);
+    $payload = $payloadJson !== null ? json_decode($payloadJson, true) : null;
+    if (
+        !is_array($payload)
+        || (int) ($payload['uid'] ?? 0) !== $uid
+        || (int) ($payload['iid'] ?? 0) !== $itemId
+        || ($payload['mod'] ?? '') !== 'pages'
+        || (int) ($payload['exp'] ?? 0) < time()
+    ) {
+        return null;
+    }
+    if (!hash_equals(hash('sha256', session_id()), (string) ($payload['sid'] ?? ''))) {
+        return null;
+    }
+    $tok = db_one(
+        'SELECT * FROM reader_tokens WHERE token_hash = ? AND user_id = ? AND item_id = ? LIMIT 1',
+        [hash('sha256', $rawToken), $uid, $itemId]
+    );
+    if (!$tok || strtotime((string) $tok['expires_at']) < time()) {
+        return null;
+    }
+    return $tok;
+}
+
+/**
+ * Search indexed page text inside a protected book.
+ * Returns only page_num + short <=80 char non-selectable snippets, enforces sample boundary & rate limit.
+ */
+function handle_reader_search(): never
+{
+    header('Content-Type: application/json; charset=UTF-8');
+    header('Cache-Control: no-store');
+
+    $user = current_user();
+    if (!$user) {
+        http_response_code(401);
+        echo json_encode(['ok' => false, 'error' => 'AUTH_REQUIRED']);
+        exit;
+    }
+
+    $itemId   = (int) ($_GET['item'] ?? 0);
+    $tokenStr = (string) ($_GET['token'] ?? '');
+    $q        = trim((string) ($_GET['q'] ?? ''));
+
+    $tok = verify_signed_reader_token($tokenStr, (int) $user['id'], $itemId);
+    if (!$tok) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'INVALID_OR_EXPIRED_TOKEN']);
+        exit;
+    }
+
+    $uid = (int) $user['id'];
+    if (empty($user['active_session_token']) || !hash_equals((string) $user['active_session_token'], (string) $tok['session_token'])) {
+        http_response_code(409);
+        echo json_encode(['ok' => false, 'error' => 'SESSION_KICKED']);
+        exit;
+    }
+
+    if (!user_rate_limit_check("rsearch:u:{$uid}", 15, 60)) {
+        http_response_code(429);
+        echo json_encode([
+            'ok'      => false,
+            'error'   => 'RATE_LIMITED',
+            'message' => current_lang() === 'bn' ? 'অনেক দ্রুত খোঁজা হয়েছে। ১ মিনিট পর আবার চেষ্টা করুন।' : 'Search rate limit reached. Please wait a minute.',
+        ]);
+        exit;
+    }
+
+    if (mb_strlen($q) < 2) {
+        echo json_encode(['ok' => true, 'results' => []]);
+        exit;
+    }
+
+    $item = db_one('SELECT id, price, is_free, sample_pages, total_pages FROM items WHERE id = ? AND is_active = 1 LIMIT 1', [$itemId]);
+    if (!$item) {
+        http_response_code(404);
+        echo json_encode(['ok' => false, 'error' => 'ITEM_NOT_FOUND']);
+        exit;
+    }
+
+    $isSample = (int) $tok['is_sample'] === 1;
+    $isFree = (bool) $item['is_free'] || (float) $item['price'] <= 0;
+    $canReadFull = $isFree || user_owns_item($uid, $itemId);
+    if (!$canReadFull && (!$isSample || (int) $item['sample_pages'] <= 0)) {
+        http_response_code(403);
+        echo json_encode(['ok' => false, 'error' => 'ACCESS_DENIED']);
+        exit;
+    }
+
+    $preparedCount = count_prepared_pages($itemId);
+    $totalFallback = max($preparedCount, (int) ($item['total_pages'] ?? 0));
+    $maxAllowed = (!$canReadFull && $isSample) ? min($totalFallback, (int) $item['sample_pages']) : $totalFallback;
+
+    $like = '%' . preg_replace('/\s+/u', ' ', $q) . '%';
+    $rows = db_all(
+        'SELECT page_num, norm_text
+         FROM item_page_texts
+         WHERE item_id = ? AND is_staging = 0 AND page_num <= ? AND norm_text LIKE ?
+         ORDER BY page_num ASC
+         LIMIT 25',
+        [$itemId, max(1, $maxAllowed), $like]
+    );
+
+    $results = [];
+    foreach ($rows as $r) {
+        $text = (string) $r['norm_text'];
+        $pos = mb_stripos($text, $q);
+        $start = ($pos !== false) ? max(0, $pos - 24) : 0;
+        $snip = mb_substr($text, $start, 80);
+        if ($start > 0) {
+            $snip = '…' . ltrim(mb_substr($snip, 0, 79));
+        }
+        if (mb_strlen($snip) > 80) {
+            $snip = mb_substr($snip, 0, 80);
+        }
+        $results[] = [
+            'page'    => (int) $r['page_num'],
+            'snippet' => $snip,
+        ];
+    }
+
+    echo json_encode(['ok' => true, 'results' => $results], JSON_UNESCAPED_UNICODE);
     exit;
 }

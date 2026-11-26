@@ -52,7 +52,10 @@ if (!$item):
 <?php return; endif;
 
 $existingCount = count_prepared_pages((int) $item['id']);
-$resumeFrom = ($existingCount > 0 && ($item['pages_status'] ?? '') !== 'ready') ? ($existingCount + 1) : 1;
+$procSt = (string) ($item['processing_status'] ?? 'idle');
+$stagingFiles = glob(page_staging_dir((int) $item['id']) . '/page-*.*') ?: [];
+$stagingCount = count($stagingFiles);
+$resumeFrom = ($stagingCount > 0 && $procSt === 'processing') ? ($stagingCount + 1) : 1;
 $hasDriveLink = trim((string) ($item['drive_link'] ?? '')) !== '';
 $streamUrl = $hasDriveLink ? url('/admin/api/stream-source?item_id=' . (int) $item['id'] . '&_csrf=' . rawurlencode(csrf_token())) : '';
 ?>
@@ -126,24 +129,43 @@ $streamUrl = $hasDriveLink ? url('/admin/api/stream-source?item_id=' . (int) $it
 
         <div style="text-align:center;background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:16px;">
             <div style="font-size:0.78rem;text-transform:uppercase;color:var(--text-muted);font-weight:700;margin-bottom:10px;">
-                <?= $lang === 'bn' ? 'লাইভ রেন্ডার প্রিভিউ' : 'Live Page Render Preview' ?>
+                <?= $lang === 'bn' ? 'লাইভ রেন্ডার ও ৩:৪ অটো-কভার' : 'Live Page Render & Auto 3:4 Cover' ?>
             </div>
-            <canvas id="prep-preview-canvas" style="max-width:220px;width:100%;height:auto;border-radius:10px;border:1px solid var(--border);background:#fff;margin:0 auto;display:block;"></canvas>
+            <canvas id="prep-preview-canvas" style="max-width:220px;width:100%;height:auto;border-radius:10px;border:1px solid var(--border);background:#fff;margin:0 auto 12px;display:block;"></canvas>
+            <div id="auto-cover-box" style="border-top:1px solid var(--border);padding-top:12px;">
+                <?php
+                $curCoverRaw = trim((string) ($item['cover'] ?? ''));
+                $hasCustomCover = $curCoverRaw !== '' && !str_ends_with($curCoverRaw, 'cover-bangla.svg');
+                ?>
+                <img id="auto-cover-preview" src="<?= $hasCustomCover ? e(asset($curCoverRaw)) : '' ?>" alt="" style="<?= $hasCustomCover ? '' : 'display:none;' ?>max-width:135px;aspect-ratio:3/4;object-fit:cover;border-radius:10px;border:1px solid var(--border);margin:0 auto 8px;">
+                <div id="auto-cover-note" style="font-size:0.8rem;color:var(--text-muted);margin-bottom:8px;">
+                    <?= $hasCustomCover
+                        ? ($lang === 'bn' ? 'বইয়ে কভার আছে (চাইলে পৃষ্ঠা ১ দিয়ে বদলাতে পারবেন)।' : 'Book has an active cover. You can replace it with Page 1.')
+                        : ($lang === 'bn' ? 'কোনো কভার নেই — পৃষ্ঠা ১ থেকে ৩:৪ কভার তৈরি করে CDN-এ সিঙ্ক করা হবে।' : 'No custom cover — Page 1 will auto-render a 3:4 cover and sync to CDN.') ?>
+                </div>
+                <button type="button" id="btn-apply-auto-cover" class="bx-btn bx-btn-outline bx-btn-sm" style="display:none;">
+                    <?= $lang === 'bn' ? 'পৃষ্ঠা ১ কে কভার হিসেবে ব্যবহার করুন' : 'Use / Replace Cover With Page 1' ?>
+                </button>
+            </div>
         </div>
     </div>
 </section>
 
 <script src="<?= e(asset('assets/vendor/pdfjs/pdf.min.js')) ?>"></script>
 <script id="bx-prepare-config" type="application/json"><?= json_encode([
-    'itemId'        => (int) $item['id'],
-    'streamUrl'     => $streamUrl,
-    'hasDriveLink'  => $hasDriveLink,
-    'uploadUrl'     => url('/admin/api/upload-page'),
-    'finalizeUrl'   => url('/admin/api/finalize-pages'),
-    'workerUrl'     => asset('assets/vendor/pdfjs/pdf.worker.min.js'),
-    'csrfToken'     => csrf_token(),
-    'existingCount' => (int) $existingCount,
-    'resumeFrom'    => (int) $resumeFrom,
-    'pagesStatus'   => (string) ($item['pages_status'] ?? 'unprocessed'),
+    'itemId'           => (int) $item['id'],
+    'streamUrl'        => $streamUrl,
+    'hasDriveLink'     => $hasDriveLink,
+    'hasCover'         => $hasCustomCover,
+    'uploadUrl'        => url('/admin/api/upload-page'),
+    'finalizeUrl'      => url('/admin/api/finalize-pages'),
+    'discardUrl'       => url('/admin/api/discard-staging'),
+    'autoCoverUrl'     => url('/admin/api/upload-auto-cover'),
+    'workerUrl'        => asset('assets/vendor/pdfjs/pdf.worker.min.js'),
+    'csrfToken'        => csrf_token(),
+    'existingCount'    => (int) $existingCount,
+    'resumeFrom'       => (int) $resumeFrom,
+    'pagesStatus'      => (string) ($item['pages_status'] ?? 'unprocessed'),
+    'processingStatus' => $procSt,
 ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
 <script src="<?= e(asset('assets/js/admin_prepare.js')) ?>"></script>

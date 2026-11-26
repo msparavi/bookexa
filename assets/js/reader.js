@@ -49,12 +49,18 @@
     const userPrefThemeKey = 'bookexa_reader_theme_u' + (cfg.userId || 0);
     const userPrefZoomKey  = 'bookexa_reader_zoom_u' + (cfg.userId || 0);
     const userPrefPageKey  = 'bookexa_reader_page_u' + (cfg.userId || 0) + '_' + (cfg.itemId || 0);
+    const userPrefLwKey    = 'bookexa_reader_lw_u' + (cfg.userId || 0);
 
     let pdfDoc = null;
     let readerReady = false;
     let currentPage = 1;
     let allowedPages = 1;
     let doublePage = false;
+    let lightweightMobile = cfg.lightweightMobileDefault !== false;
+    try {
+        const savedLw = localStorage.getItem(userPrefLwKey);
+        if (savedLw === '0' || savedLw === '1') lightweightMobile = (savedLw === '1');
+    } catch (e) {}
     let fitScale = 1.0;
     let zoomFactor = 1.0;
     let rendering = false;
@@ -66,6 +72,8 @@
     let prefSyncTimer = null;
     let thumbsInitialized = false;
     let thumbObs = null;
+    let preloadTimers = [];
+    let prefetchControllers = [];
 
     let lastWinW = window.innerWidth;
     let lastWinH = window.innerHeight;
@@ -189,6 +197,54 @@
         clearCanvasMemory(canvas2);
     }
 
+    function isSmallPhoneScreen() {
+        const sw = (window.screen && window.screen.width) ? window.screen.width : window.innerWidth;
+        return Math.min(window.innerWidth, sw) <= 768;
+    }
+
+    function shouldPausePrefetch() {
+        if (document.hidden || sessionKicked || !readerReady) return true;
+        if (shieldEl && shieldEl.classList.contains('active')) return true;
+        const conn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+        if (conn) {
+            if (conn.saveData === true) return true;
+            const et = String(conn.effectiveType || '').toLowerCase();
+            if (et === 'slow-2g' || et === '2g') return true;
+        }
+        return false;
+    }
+
+    function cancelPrefetchWork() {
+        preloadTimers.forEach((id) => clearTimeout(id));
+        preloadTimers = [];
+        prefetchControllers.forEach((ctrl) => {
+            try { ctrl.abort(); } catch (e) {}
+        });
+        prefetchControllers = [];
+    }
+
+    function pruneDistantPageBitmaps(centerPage) {
+        for (const [pNum, bmp] of Array.from(pageBitmapCache.entries())) {
+            if (Math.abs(pNum - centerPage) > 3) {
+                pageBitmapCache.delete(pNum);
+                if (bmp && typeof bmp.close === 'function') {
+                    try { bmp.close(); } catch (e) {}
+                }
+            }
+        }
+    }
+
+    function releaseFarThumbCanvases(centerPage) {
+        if (!thumbList) return;
+        thumbList.querySelectorAll('.bx-thumb-item[data-rendered="1"]').forEach((item) => {
+            const pNum = parseInt(item.dataset.page || '0', 10);
+            if (Math.abs(pNum - centerPage) > 4) {
+                clearCanvasMemory(item.querySelector('canvas'));
+                item.dataset.rendered = '0';
+            }
+        });
+    }
+
     function logSecurityEvent(eventName) {
         fetch(cfg.secEventUrl, {
             method: 'POST',
@@ -248,7 +304,7 @@
     }
 
     // 3A. Protected Image Page Loader (zero PDF bytes sent to user browser)
-    async function fetchProtectedPageBitmap(pageNum) {
+    async function fetchProtectedPageBitmap(pageNum, opts = {}) {
         if (pageBitmapCache.has(pageNum)) {
             const existing = pageBitmapCache.get(pageNum);
             pageBitmapCache.delete(pageNum);
@@ -256,12 +312,19 @@
             return existing;
         }
         const sep = cfg.pageApiBase.includes('?') ? '&' : '?';
-        const url = `${cfg.pageApiBase}${sep}page=${pageNum}`;
-        const resp = await fetch(url, {
-            cache: 'no-store',
-            credentials: 'same-origin',
-            headers: { 'X-Bookexa-Reader': '1' }
-        });
+        const useLw = lightweightMobile && isSmallPhoneScreen();
+        const url = `${cfg.pageApiBase}${sep}page=${pageNum}` + (useLw ? '&maxw=1000' : '');
+        const headers = { 'X-Bookexa-Reader': '1' };
+        if (useLw) headers['X-Bookexa-Max-Width'] = '1000';
+        const fetchOpts = { cache: 'no-store', credentials: 'same-origin', headers };
+        if (opts.signal) fetchOpts.signal = opts.signal;
+
+        const resp = await fetch(url, fetchOpts);
+        if (resp.status === 503 && !opts.isPrefetch && (opts.retriesLeft ?? 1) > 0 && !document.hidden) {
+            const retrySec = Math.max(1, Math.min(4, parseInt(resp.headers.get('Retry-After') || '2', 10) || 2));
+            await new Promise((res) => setTimeout(res, retrySec * 1000));
+            return fetchProtectedPageBitmap(pageNum, { ...opts, retriesLeft: (opts.retriesLeft ?? 1) - 1 });
+        }
         if (resp.status === 409) {
             showShield(cfg.kickedMessage, true, 'kick');
             throw new Error('SESSION_KICKED');
@@ -382,6 +445,7 @@
             stageEl.classList.toggle('is-zoomed', zoomFactor > 1.03);
 
             if (cfg.mode === 'pages') {
+                cancelPrefetchWork();
                 const bmp1 = await fetchProtectedPageBitmap(currentPage);
                 drawProtectedBitmapToCanvas(bmp1, canvas1, false);
                 if (useSpread && currentPage + 1 <= allowedPages) {
@@ -392,14 +456,29 @@
                     card2.style.display = 'none';
                     clearCanvasMemory(canvas2);
                 }
-                clearTimeout(preloadTimer);
-                const nextToPreload = useSpread ? currentPage + 2 : currentPage + 1;
-                if (nextToPreload <= allowedPages) {
-                    preloadTimer = setTimeout(() => {
-                        if (!sessionKicked && !shieldEl.classList.contains('active')) {
-                            fetchProtectedPageBitmap(nextToPreload).catch(() => {});
-                        }
-                    }, 550);
+                pruneDistantPageBitmaps(currentPage);
+                releaseFarThumbCanvases(currentPage);
+
+                // Prefetch at most the next 2 pages; pause if tab is hidden or connection is saveData/slow
+                if (!shouldPausePrefetch()) {
+                    const firstNext = useSpread ? currentPage + 2 : currentPage + 1;
+                    const targets = [firstNext, firstNext + 1].filter((p) => p >= 1 && p <= allowedPages);
+                    targets.forEach((targetPage, idx) => {
+                        const tid = setTimeout(() => {
+                            if (shouldPausePrefetch() || pageBitmapCache.has(targetPage)) return;
+                            const ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+                            if (ctrl) prefetchControllers.push(ctrl);
+                            fetchProtectedPageBitmap(targetPage, {
+                                isPrefetch: true,
+                                signal: ctrl ? ctrl.signal : undefined,
+                            }).catch(() => {}).finally(() => {
+                                if (ctrl) {
+                                    prefetchControllers = prefetchControllers.filter((c) => c !== ctrl);
+                                }
+                            });
+                        }, 380 + (idx * 500));
+                        preloadTimers.push(tid);
+                    });
                 }
             } else if (cfg.mode === 'pdfjs' && pdfDoc) {
                 if (recomputeFit !== false) {
@@ -434,7 +513,7 @@
             saveProgress(currentPage, allowedPages);
         } catch (err) {
             if (!sessionKicked && err && err.message !== 'SESSION_KICKED') {
-                renderErrorState(err.message || cfg.loadErrorMsg, err.httpStatus === 401 || err.httpStatus === 403);
+                renderErrorState(err.message || cfg.loadErrorMsg, err.httpStatus === 401 || err.httpStatus === 403, err.httpStatus === 429);
             }
         } finally {
             rendering = false;
@@ -645,6 +724,26 @@
     document.getElementById('sheet-zoom-out')?.addEventListener('click', () => zoomBy(-0.25));
     document.getElementById('sheet-fit-width')?.addEventListener('click', () => { fitToWidth(); closeSheets(); });
     document.getElementById('sheet-toggle-spread')?.addEventListener('click', toggleSpread);
+    const btnToggleLw = document.getElementById('sheet-toggle-lightweight');
+    const lwLabelEl   = document.getElementById('sheet-lw-label');
+    function syncLightweightUi() {
+        if (!btnToggleLw) return;
+        btnToggleLw.setAttribute('aria-pressed', lightweightMobile ? 'true' : 'false');
+        btnToggleLw.classList.toggle('is-active-theme', lightweightMobile);
+        if (lwLabelEl) {
+            lwLabelEl.textContent = lightweightMobile
+                ? (cfg.lightweightOnLabel || 'Lightweight Phone Size (1000px): ON')
+                : (cfg.lightweightOffLabel || 'Lightweight Phone Size (1000px): OFF');
+        }
+    }
+    syncLightweightUi();
+    btnToggleLw?.addEventListener('click', () => {
+        lightweightMobile = !lightweightMobile;
+        try { localStorage.setItem(userPrefLwKey, lightweightMobile ? '1' : '0'); } catch (e) {}
+        syncLightweightUi();
+        releaseBitmapCache();
+        renderVisiblePages(true);
+    });
 
     btnThumbs?.addEventListener('click', () => {
         settingsSheet?.classList.remove('open');
@@ -653,6 +752,195 @@
         if (opening) ensureThumbnails();
     });
     btnThumbsCls?.addEventListener('click', () => thumbSidebar.classList.remove('open'));
+
+    // 5b. Drawer Tabs (Pages / TOC / Bookmarks / Search Inside Book)
+    const drawerTabBtns = document.querySelectorAll('[data-drawer-tab]');
+    function switchDrawerTab(tabName) {
+        drawerTabBtns.forEach((b) => b.classList.toggle('active', b.getAttribute('data-drawer-tab') === tabName));
+        ['pages', 'toc', 'bookmarks', 'search'].forEach((t) => {
+            document.getElementById('pane-' + t)?.classList.toggle('active', t === tabName);
+        });
+        if (tabName === 'pages') ensureThumbnails();
+        if (tabName === 'bookmarks') loadBookmarks();
+    }
+    drawerTabBtns.forEach((btn) => {
+        btn.addEventListener('click', () => switchDrawerTab(btn.getAttribute('data-drawer-tab')));
+    });
+
+    // TOC Drawer Rendering
+    (function renderTocList() {
+        const tocBox = document.getElementById('toc-list');
+        if (!tocBox) return;
+        const entries = Array.isArray(cfg.tocItems) ? cfg.tocItems : [];
+        if (!entries.length) {
+            const empty = document.createElement('p');
+            empty.style.cssText = 'color:var(--r-muted);font-size:0.84rem;margin:6px 0;';
+            empty.textContent = 'No Table of Contents extracted for this book.';
+            tocBox.appendChild(empty);
+            return;
+        }
+        entries.forEach((entry) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'bx-toc-item';
+            btn.style.paddingLeft = (10 + Math.min(3, Number(entry.level || 0)) * 12) + 'px';
+            const tSpan = document.createElement('span');
+            tSpan.textContent = String(entry.title || '');
+            const pSpan = document.createElement('small');
+            pSpan.style.color = 'var(--r-muted)';
+            pSpan.textContent = 'p.' + Number(entry.page || 1);
+            btn.append(tSpan, pSpan);
+            btn.addEventListener('click', () => {
+                goToPage(Number(entry.page || 1));
+                if (isNarrowViewport()) thumbSidebar.classList.remove('open');
+            });
+            tocBox.appendChild(btn);
+        });
+    })();
+
+    // Bookmarks CRUD
+    const bmListEl = document.getElementById('bm-list');
+    const bmFormEl = document.getElementById('bm-add-form');
+    const bmLabelIn = document.getElementById('bm-label-input');
+    const btnQuickBm = document.getElementById('btn-bookmark-quick');
+
+    function renderBookmarksList(items) {
+        if (!bmListEl) return;
+        bmListEl.innerHTML = '';
+        if (!items || !items.length) {
+            const p = document.createElement('p');
+            p.style.cssText = 'color:var(--r-muted);font-size:0.84rem;margin:6px 0;';
+            p.textContent = 'No bookmarks yet. Tap Save on any page.';
+            bmListEl.appendChild(p);
+            return;
+        }
+        items.forEach((bm) => {
+            const row = document.createElement('div');
+            row.className = 'bx-bm-row';
+            const goBtn = document.createElement('button');
+            goBtn.type = 'button';
+            goBtn.style.cssText = 'background:none;border:0;color:inherit;text-align:left;flex:1;cursor:pointer;font:inherit;padding:0;';
+            const lbl = document.createElement('strong');
+            lbl.style.display = 'block';
+            lbl.textContent = String(bm.label || ('Page ' + bm.page_num));
+            const pg = document.createElement('small');
+            pg.style.color = 'var(--r-muted)';
+            pg.textContent = 'Page ' + Number(bm.page_num);
+            goBtn.append(lbl, pg);
+            goBtn.addEventListener('click', () => {
+                goToPage(Number(bm.page_num));
+                if (isNarrowViewport()) thumbSidebar.classList.remove('open');
+            });
+
+            const delBtn = document.createElement('button');
+            delBtn.type = 'button';
+            delBtn.className = 'bx-rbtn';
+            delBtn.style.minHeight = '40px';
+            delBtn.style.minWidth = '40px';
+            delBtn.textContent = '✕';
+            delBtn.setAttribute('aria-label', 'Delete bookmark');
+            delBtn.addEventListener('click', () => saveOrDeleteBookmark('delete', Number(bm.page_num), ''));
+            row.append(goBtn, delBtn);
+            bmListEl.appendChild(row);
+        });
+    }
+
+    async function loadBookmarks() {
+        if (!cfg.bookmarksUrl) return;
+        try {
+            const r = await fetch(cfg.bookmarksUrl + '?item_id=' + encodeURIComponent(String(cfg.itemId)), { credentials: 'same-origin' });
+            const d = await r.json();
+            if (d && d.ok) renderBookmarksList(d.bookmarks);
+        } catch (e) {}
+    }
+
+    async function saveOrDeleteBookmark(action, pageNum, label) {
+        if (!cfg.bookmarksUrl) return;
+        try {
+            const r = await fetch(cfg.bookmarksUrl, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({
+                    _csrf: cfg.csrfToken,
+                    action,
+                    item_id: String(cfg.itemId),
+                    page_num: String(pageNum),
+                    label: label || ''
+                })
+            });
+            const d = await r.json();
+            if (d && d.ok) renderBookmarksList(d.bookmarks);
+        } catch (e) {}
+    }
+
+    bmFormEl?.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const label = (bmLabelIn?.value || '').trim();
+        if (bmLabelIn) bmLabelIn.value = '';
+        saveOrDeleteBookmark('save', currentPage, label);
+    });
+    btnQuickBm?.addEventListener('click', () => {
+        settingsSheet?.classList.remove('open');
+        thumbSidebar.classList.add('open');
+        switchDrawerTab('bookmarks');
+        if (bmLabelIn && !bmLabelIn.value.trim()) {
+            bmLabelIn.value = 'Page ' + currentPage;
+        }
+        saveOrDeleteBookmark('save', currentPage, bmLabelIn ? bmLabelIn.value.trim() : '');
+    });
+
+    // Protected Search Inside Book (returns only page number + <=80 char snippet)
+    const rsForm = document.getElementById('rsearch-form');
+    const rsIn   = document.getElementById('rsearch-input');
+    const rsList = document.getElementById('rsearch-results');
+    rsForm?.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        if (!rsIn || !rsList) return;
+        const q = rsIn.value.trim();
+        if (q.length < 2) return;
+        rsList.innerHTML = '';
+        if (!cfg.searchUrl) {
+            const p = document.createElement('p');
+            p.style.cssText = 'color:var(--r-muted);font-size:0.84rem;';
+            p.textContent = 'Search index is available once protected pages are prepared.';
+            rsList.appendChild(p);
+            return;
+        }
+        try {
+            const r = await fetch(cfg.searchUrl + '&q=' + encodeURIComponent(q), { credentials: 'same-origin', cache: 'no-store' });
+            const d = await r.json();
+            if (!r.ok || !d.ok) {
+                const p = document.createElement('p');
+                p.style.cssText = 'color:#F47296;font-size:0.84rem;';
+                p.textContent = (d && d.message) || 'Search unavailable right now.';
+                rsList.appendChild(p);
+                return;
+            }
+            if (!d.results || !d.results.length) {
+                const p = document.createElement('p');
+                p.style.cssText = 'color:var(--r-muted);font-size:0.84rem;';
+                p.textContent = 'No matching text found.';
+                rsList.appendChild(p);
+                return;
+            }
+            d.results.forEach((hit) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'bx-rsearch-row';
+                const pg = document.createElement('strong');
+                pg.textContent = 'Page ' + Number(hit.page);
+                const sn = document.createElement('small');
+                sn.textContent = String(hit.snippet || '');
+                btn.append(pg, sn);
+                btn.addEventListener('click', () => {
+                    goToPage(Number(hit.page));
+                    if (isNarrowViewport()) thumbSidebar.classList.remove('open');
+                });
+                rsList.appendChild(btn);
+            });
+        } catch (err) {}
+    });
 
     btnFull?.addEventListener('click', () => {
         if (!document.fullscreenElement) {
@@ -801,12 +1089,22 @@
         showShield(cfg.blurMessage, false, 'print');
     });
 
-    // Visibility hidden (tab switch / minimize) triggers shield across all devices
+    // Visibility hidden (tab switch / minimize) pauses prefetches and triggers shield
     document.addEventListener('visibilitychange', () => {
-        if (document.hidden && !sessionKicked && readerReady) {
-            showShield(cfg.blurMessage, false, 'blur');
+        if (document.hidden) {
+            cancelPrefetchWork();
+            if (!sessionKicked && readerReady) {
+                showShield(cfg.blurMessage, false, 'blur');
+            }
         }
     });
+
+    const netConn = navigator.connection || navigator.mozConnection || navigator.webkitConnection;
+    if (netConn && typeof netConn.addEventListener === 'function') {
+        netConn.addEventListener('change', () => {
+            if (shouldPausePrefetch()) cancelPrefetchWork();
+        });
+    }
 
     // Desktop-only delayed window blur (700ms) + auto-restore when focus returns; never trigger blur on touch devices
     window.addEventListener('blur', () => {
@@ -849,7 +1147,7 @@
     window.addEventListener('resize', handleViewportChange, { passive: true });
     window.addEventListener('orientationchange', handleViewportChange, { passive: true });
 
-    // 8. Single active reading session heartbeat
+    // 8. Single active reading session heartbeat + active time-spent tracking
     setInterval(async () => {
         if (sessionKicked || !readerReady) return;
         try {
@@ -857,6 +1155,19 @@
             if (res.status === 409) {
                 if (pdfDoc) { try { pdfDoc.destroy(); } catch (e) {} }
                 showShield(cfg.kickedMessage, true, 'kick');
+                return;
+            }
+            if (!document.hidden && !shieldedByBlur && !cfg.isSample) {
+                fetch(cfg.progressUrl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: new URLSearchParams({
+                        _csrf: cfg.csrfToken,
+                        item_id: String(cfg.itemId),
+                        delta_sec: '15'
+                    })
+                }).catch(() => {});
             }
         } catch (e) {}
     }, 15000);

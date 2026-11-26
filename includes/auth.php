@@ -15,13 +15,28 @@ function current_user(): ?array
     }
 
     $user = db_one(
-        'SELECT id, name, email, phone, is_active, active_session_token FROM users WHERE id = ? LIMIT 1',
+        'SELECT id, name, email, phone, is_active, active_session_token, reader_theme, reader_zoom, reading_suspended_until FROM users WHERE id = ? LIMIT 1',
         [(int) $uid]
     );
     if (!$user || !(int) $user['is_active']) {
-        unset($_SESSION['user_id'], $_SESSION['active_session_token']);
+        unset($_SESSION['user_id'], $_SESSION['active_session_token'], $_SESSION['device_token']);
         $cached = null;
         return null;
+    }
+
+    $devTok = (string) ($_SESSION['device_token'] ?? '');
+    if ($devTok !== '') {
+        $dev = db_one('SELECT id FROM user_devices WHERE user_id = ? AND device_token = ? LIMIT 1', [(int) $uid, $devTok]);
+        if (!$dev) {
+            unset($_SESSION['user_id'], $_SESSION['active_session_token'], $_SESSION['device_token']);
+            $cached = null;
+            return null;
+        }
+        $lastPing = (int) ($_SESSION['device_ping_at'] ?? 0);
+        if ((time() - $lastPing) >= 60) {
+            db_exec('UPDATE user_devices SET last_active_at = NOW(), ip_address = ? WHERE id = ?', [client_ip(), (int) $dev['id']]);
+            $_SESSION['device_ping_at'] = time();
+        }
     }
 
     $cached = $user;
@@ -82,13 +97,161 @@ function user_rate_limit_check(string $key, int $maxHits, int $windowSeconds): b
     return true;
 }
 
-function login_user_session(array $user): void
+function bookexa_device_fingerprint(bool $createIfMissing = true): string
 {
-    session_regenerate_id(true);
+    $raw = (string) ($_COOKIE['bx_did'] ?? '');
+    if (preg_match('/^[a-f0-9]{16,64}$/', $raw)) {
+        return $raw;
+    }
+    if (!$createIfMissing) {
+        return '';
+    }
+    $fp = bin2hex(random_bytes(16));
+    $_COOKIE['bx_did'] = $fp;
+    if (PHP_SAPI !== 'cli' && !headers_sent()) {
+        $isHttps = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
+            || (($_SERVER['SERVER_PORT'] ?? '') === '443')
+            || (strtolower((string) ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '')) === 'https');
+        setcookie('bx_did', $fp, [
+            'expires'  => time() + (365 * 86400),
+            'path'     => BASE_PATH !== '' ? BASE_PATH . '/' : '/',
+            'secure'   => $isHttps,
+            'httponly' => true,
+            'samesite' => 'Lax',
+        ]);
+    }
+    return $fp;
+}
+
+function bookexa_device_label(): string
+{
+    $ua = (string) ($_SERVER['HTTP_USER_AGENT'] ?? '');
+    if ($ua === '') {
+        return PHP_SAPI === 'cli' ? 'CLI Session' : 'Web Browser';
+    }
+    $browser = 'Browser';
+    if (stripos($ua, 'Edg') !== false) {
+        $browser = 'Edge';
+    } elseif (stripos($ua, 'OPR') !== false || stripos($ua, 'Opera') !== false) {
+        $browser = 'Opera';
+    } elseif (stripos($ua, 'Firefox') !== false) {
+        $browser = 'Firefox';
+    } elseif (stripos($ua, 'Chrome') !== false) {
+        $browser = 'Chrome';
+    } elseif (stripos($ua, 'Safari') !== false) {
+        $browser = 'Safari';
+    }
+    $os = 'Desktop';
+    if (stripos($ua, 'Android') !== false) {
+        $os = 'Android';
+    } elseif (stripos($ua, 'iPhone') !== false || stripos($ua, 'iPad') !== false) {
+        $os = 'iOS';
+    } elseif (stripos($ua, 'Windows') !== false) {
+        $os = 'Windows';
+    } elseif (stripos($ua, 'Mac OS') !== false || stripos($ua, 'Macintosh') !== false) {
+        $os = 'macOS';
+    } elseif (stripos($ua, 'Linux') !== false) {
+        $os = 'Linux';
+    }
+    return $browser . ' · ' . $os;
+}
+
+function list_user_devices(int $userId): array
+{
+    return db_all('SELECT * FROM user_devices WHERE user_id = ? ORDER BY last_active_at DESC, id DESC', [$userId]);
+}
+
+function revoke_user_device(int $userId, int $deviceId): bool
+{
+    $row = db_one('SELECT id, device_token FROM user_devices WHERE id = ? AND user_id = ? LIMIT 1', [$deviceId, $userId]);
+    if (!$row) {
+        return false;
+    }
+    db_exec('DELETE FROM user_devices WHERE id = ? AND user_id = ?', [$deviceId, $userId]);
+    if (!empty($_SESSION['device_token']) && hash_equals((string) $_SESSION['device_token'], (string) $row['device_token'])) {
+        unset($_SESSION['user_id'], $_SESSION['active_session_token'], $_SESSION['device_token'], $_SESSION['device_ping_at']);
+    }
+    return true;
+}
+
+function check_device_limit_or_prepare(array $user): ?array
+{
+    $uid = (int) $user['id'];
+    $maxDevices = max(1, (int) site_setting('max_devices_per_account', '2'));
+    $fp = bookexa_device_fingerprint(false);
+    $devices = list_user_devices($uid);
+    if ($fp !== '') {
+        foreach ($devices as $d) {
+            if ((string) $d['device_fingerprint'] === $fp) {
+                return null;
+            }
+        }
+    }
+    if (count($devices) < $maxDevices) {
+        return null;
+    }
+    return [
+        'ok'      => false,
+        'code'    => 'DEVICE_LIMIT',
+        'user'    => $user,
+        'devices' => $devices,
+        'max'     => $maxDevices,
+        'error'   => current_lang() === 'bn'
+            ? "প্রতি অ্যাকাউন্টে সর্বোচ্চ {$maxDevices}টি ডিভাইস লগইন অনুমোদিত। চালিয়ে যেতে একটি পুরোনো ডিভাইস সাইন আউট করুন।"
+            : "Maximum {$maxDevices} active devices allowed per account. Sign out an existing device to log in here.",
+    ];
+}
+
+function login_user_session(array $user, ?int $replaceDeviceId = null): void
+{
+    if (session_status() === PHP_SESSION_ACTIVE && PHP_SAPI !== 'cli') {
+        session_regenerate_id(true);
+    }
+    $uid = (int) $user['id'];
     $token = bin2hex(random_bytes(32));
-    db_exec('UPDATE users SET active_session_token = ?, active_session_updated_at = NOW() WHERE id = ?', [$token, (int) $user['id']]);
-    $_SESSION['user_id'] = (int) $user['id'];
+    db_exec('UPDATE users SET active_session_token = ?, active_session_updated_at = NOW() WHERE id = ?', [$token, $uid]);
+
+    if ($replaceDeviceId !== null && $replaceDeviceId > 0) {
+        db_exec('DELETE FROM user_devices WHERE id = ? AND user_id = ?', [$replaceDeviceId, $uid]);
+    }
+
+    $fp = bookexa_device_fingerprint(true);
+    $devToken = bin2hex(random_bytes(32));
+    $label = bookexa_device_label();
+    $ua = substr((string) ($_SERVER['HTTP_USER_AGENT'] ?? ''), 0, 250);
+    $existing = db_one('SELECT id FROM user_devices WHERE user_id = ? AND device_fingerprint = ? LIMIT 1', [$uid, $fp]);
+    if ($existing) {
+        db_exec(
+            'UPDATE user_devices SET device_token = ?, device_label = ?, ip_address = ?, user_agent = ?, last_active_at = NOW() WHERE id = ?',
+            [$devToken, $label, client_ip(), $ua, (int) $existing['id']]
+        );
+    } else {
+        db_exec(
+            'INSERT INTO user_devices (user_id, device_token, device_fingerprint, device_label, ip_address, user_agent, last_active_at) VALUES (?, ?, ?, ?, ?, ?, NOW())',
+            [$uid, $devToken, $fp, $label, client_ip(), $ua]
+        );
+    }
+
+    $_SESSION['user_id'] = $uid;
     $_SESSION['active_session_token'] = $token;
+    $_SESSION['device_token'] = $devToken;
+    $_SESSION['device_ping_at'] = time();
+}
+
+function find_user_by_identifier(string $identifier): ?array
+{
+    $identifier = trim($identifier);
+    if ($identifier === '') {
+        return null;
+    }
+    $normPhone = function_exists('normalize_bd_phone') ? normalize_bd_phone($identifier) : '';
+    if ($normPhone !== '') {
+        return db_one(
+            'SELECT * FROM users WHERE (email = ? OR phone = ? OR phone = ?) LIMIT 1',
+            [strtolower($identifier), $identifier, $normPhone]
+        );
+    }
+    return db_one('SELECT * FROM users WHERE (email = ? OR phone = ?) LIMIT 1', [strtolower($identifier), $identifier]);
 }
 
 function attempt_user_login(string $identifier, string $password): array
@@ -104,7 +267,7 @@ function attempt_user_login(string $identifier, string $password): array
     }
 
     $identifier = trim($identifier);
-    $user = db_one('SELECT * FROM users WHERE (email = ? OR phone = ?) LIMIT 1', [strtolower($identifier), $identifier]);
+    $user = find_user_by_identifier($identifier);
 
     if (!$user || !password_verify($password, $user['password_hash'])) {
         try {
@@ -131,6 +294,11 @@ function attempt_user_login(string $identifier, string $password): array
         ];
     }
 
+    $limitHit = check_device_limit_or_prepare($user);
+    if ($limitHit !== null) {
+        return $limitHit;
+    }
+
     db_exec('DELETE FROM rate_limits WHERE rate_key = ?', [$ipKey]);
     login_user_session($user);
     return ['ok' => true, 'user' => $user];
@@ -140,7 +308,9 @@ function register_user_account(string $name, string $email, string $phone, strin
 {
     $name = trim($name);
     $email = strtolower(trim($email));
-    $phone = trim($phone);
+    $phoneRaw = trim($phone);
+    $normPhone = ($phoneRaw !== '' && function_exists('normalize_bd_phone')) ? normalize_bd_phone($phoneRaw) : '';
+    $phone = $normPhone !== '' ? $normPhone : $phoneRaw;
 
     if ($name === '') {
         return ['ok' => false, 'error' => current_lang() === 'bn' ? 'আপনার নাম দিন।' : 'Please enter your name.'];
@@ -161,7 +331,7 @@ function register_user_account(string $name, string $email, string $phone, strin
     if (db_one('SELECT id FROM users WHERE email = ? LIMIT 1', [$effectiveEmail])) {
         return ['ok' => false, 'error' => current_lang() === 'bn' ? 'এই ইমেইল দিয়ে আগেই অ্যাকাউন্ট খোলা হয়েছে।' : 'An account with this email already exists.'];
     }
-    if ($phone !== '' && db_one('SELECT id FROM users WHERE phone = ? LIMIT 1', [$phone])) {
+    if ($phone !== '' && db_one('SELECT id FROM users WHERE phone = ? OR phone = ? LIMIT 1', [$phone, $phoneRaw])) {
         return ['ok' => false, 'error' => current_lang() === 'bn' ? 'এই মোবাইল নম্বর দিয়ে আগেই অ্যাকাউন্ট খোলা হয়েছে।' : 'An account with this phone number already exists.'];
     }
 
@@ -178,9 +348,14 @@ function register_user_account(string $name, string $email, string $phone, strin
 function logout_user_only(): void
 {
     $u = current_user();
-    if ($u) {
+    $devTok = (string) ($_SESSION['device_token'] ?? '');
+    if ($u && $devTok !== '') {
+        db_exec('DELETE FROM user_devices WHERE user_id = ? AND device_token = ?', [(int) $u['id'], $devTok]);
+    } elseif ($u) {
         db_exec('UPDATE users SET active_session_token = NULL WHERE id = ?', [(int) $u['id']]);
     }
-    unset($_SESSION['user_id'], $_SESSION['active_session_token']);
-    session_regenerate_id(true);
+    unset($_SESSION['user_id'], $_SESSION['active_session_token'], $_SESSION['device_token'], $_SESSION['device_ping_at']);
+    if (session_status() === PHP_SESSION_ACTIVE && PHP_SAPI !== 'cli') {
+        session_regenerate_id(true);
+    }
 }

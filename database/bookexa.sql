@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS `users` (
     `active_session_updated_at` DATETIME DEFAULT NULL,
     `reader_theme` ENUM('dark', 'sepia', 'light') DEFAULT NULL,
     `reader_zoom` DECIMAL(4,2) DEFAULT NULL,
+    `reading_suspended_until` DATETIME DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -30,13 +31,30 @@ CREATE TABLE IF NOT EXISTS `admins` (
     `name` VARCHAR(120) NOT NULL,
     `email` VARCHAR(190) NOT NULL,
     `password_hash` VARCHAR(255) NOT NULL,
-    `role` ENUM('superadmin', 'editor') NOT NULL DEFAULT 'superadmin',
+    `role` ENUM('superadmin', 'editor', 'support', 'analyst') NOT NULL DEFAULT 'superadmin',
     `is_active` TINYINT(1) NOT NULL DEFAULT 1,
     `last_login_at` DATETIME DEFAULT NULL,
     `must_change_password` TINYINT(1) NOT NULL DEFAULT 0,
+    `totp_secret` VARCHAR(64) DEFAULT NULL,
+    `totp_enabled` TINYINT(1) NOT NULL DEFAULT 0,
+    `backup_codes_json` TEXT DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uniq_admins_email` (`email`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `admin_sessions` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `admin_id` INT UNSIGNED NOT NULL,
+    `session_token` CHAR(64) NOT NULL,
+    `ip_address` VARCHAR(45) NOT NULL,
+    `user_agent` VARCHAR(255) DEFAULT NULL,
+    `last_active_at` DATETIME NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_as_token` (`session_token`),
+    KEY `idx_as_admin` (`admin_id`, `last_active_at`),
+    CONSTRAINT `fk_as_admin` FOREIGN KEY (`admin_id`) REFERENCES `admins` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS `banners` (
@@ -53,6 +71,8 @@ CREATE TABLE IF NOT EXISTS `banners` (
     `sort_order` INT NOT NULL DEFAULT 0,
     `starts_at` DATETIME DEFAULT NULL,
     `ends_at` DATETIME DEFAULT NULL,
+    `publish_at` DATETIME DEFAULT NULL,
+    `unpublish_at` DATETIME DEFAULT NULL,
     `is_active` TINYINT(1) NOT NULL DEFAULT 1,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
@@ -70,13 +90,19 @@ CREATE TABLE IF NOT EXISTS `folders` (
     `thumbnail` VARCHAR(255) DEFAULT NULL,
     `accent_color` VARCHAR(20) DEFAULT '#0F3D3E',
     `sort_order` INT NOT NULL DEFAULT 0,
+    `subfolder_count` INT UNSIGNED NOT NULL DEFAULT 0,
+    `item_count` INT UNSIGNED NOT NULL DEFAULT 0,
     `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `publish_at` DATETIME DEFAULT NULL,
+    `unpublish_at` DATETIME DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     KEY `idx_folders_parent_id` (`parent_id`),
+    KEY `idx_folders_parent_active` (`parent_id`, `is_active`, `sort_order`),
     KEY `idx_folders_slug` (`slug`),
     KEY `idx_folders_active_sort` (`is_active`, `sort_order`),
+    FULLTEXT KEY `ft_folders_search` (`name_bn`, `name_en`, `description_bn`, `description_en`),
     CONSTRAINT `fk_folders_parent` FOREIGN KEY (`parent_id`) REFERENCES `folders` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -98,10 +124,16 @@ CREATE TABLE IF NOT EXISTS `items` (
     `is_free` TINYINT(1) NOT NULL DEFAULT 0,
     `sample_pages` INT UNSIGNED NOT NULL DEFAULT 4,
     `total_pages` INT UNSIGNED DEFAULT NULL,
+    `view_count` INT UNSIGNED NOT NULL DEFAULT 0,
+    `read_count` INT UNSIGNED NOT NULL DEFAULT 0,
+    `toc_json` MEDIUMTEXT DEFAULT NULL,
     `pages_status` ENUM('unprocessed', 'processing', 'ready') NOT NULL DEFAULT 'unprocessed',
+    `processing_status` ENUM('idle', 'processing', 'failed') NOT NULL DEFAULT 'idle',
     `processed_at` DATETIME DEFAULT NULL,
     `is_featured` TINYINT(1) NOT NULL DEFAULT 0,
     `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+    `publish_at` DATETIME DEFAULT NULL,
+    `unpublish_at` DATETIME DEFAULT NULL,
     `sort_order` INT NOT NULL DEFAULT 0,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -109,7 +141,9 @@ CREATE TABLE IF NOT EXISTS `items` (
     UNIQUE KEY `uniq_items_slug` (`slug`),
     KEY `idx_items_slug` (`slug`),
     KEY `idx_items_folder_id` (`folder_id`),
+    KEY `idx_items_folder_active` (`folder_id`, `is_active`),
     KEY `idx_items_active` (`is_active`, `is_featured`),
+    FULLTEXT KEY `ft_items_search` (`title_bn`, `title_en`, `author_bn`, `author_en`, `description_bn`, `description_en`),
     CONSTRAINT `fk_items_folder` FOREIGN KEY (`folder_id`) REFERENCES `folders` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -121,21 +155,30 @@ CREATE TABLE IF NOT EXISTS `orders` (
     `original_amount` DECIMAL(10,2) DEFAULT NULL,
     `coupon_id` INT UNSIGNED DEFAULT NULL,
     `coupon_code` VARCHAR(40) DEFAULT NULL,
+    `coupon_decremented` TINYINT(1) NOT NULL DEFAULT 0,
     `discount_amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
     `amount` DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-    `payment_method` ENUM('bkash', 'nagad', 'rocket', 'free') NOT NULL DEFAULT 'bkash',
+    `payment_method` VARCHAR(40) NOT NULL DEFAULT 'bkash',
+    `gateway_driver` VARCHAR(40) DEFAULT NULL,
+    `gateway_ref` VARCHAR(120) DEFAULT NULL,
     `sender_number` VARCHAR(40) DEFAULT NULL,
     `transaction_id` VARCHAR(80) DEFAULT NULL,
-    `status` ENUM('pending', 'approved', 'rejected') NOT NULL DEFAULT 'pending',
+    `payment_screenshot` VARCHAR(255) DEFAULT NULL,
+    `status` ENUM('pending', 'approved', 'rejected', 'cancelled', 'expired') NOT NULL DEFAULT 'pending',
     `admin_note` VARCHAR(255) DEFAULT NULL,
+    `internal_notes` TEXT DEFAULT NULL,
     `reviewed_by` INT UNSIGNED DEFAULT NULL,
     `reviewed_at` DATETIME DEFAULT NULL,
     `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uniq_orders_code` (`order_code`),
+    UNIQUE KEY `uniq_orders_method_trx` (`payment_method`, `transaction_id`),
     KEY `idx_orders_user` (`user_id`),
+    KEY `idx_orders_user_status` (`user_id`, `status`),
     KEY `idx_orders_status` (`status`),
     KEY `idx_orders_coupon` (`coupon_id`),
+    KEY `idx_orders_sender` (`sender_number`),
+    KEY `idx_orders_created` (`created_at`),
     CONSTRAINT `fk_orders_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
     CONSTRAINT `fk_orders_item` FOREIGN KEY (`item_id`) REFERENCES `items` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -230,6 +273,8 @@ CREATE TABLE IF NOT EXISTS `reading_progress` (
     `item_id` INT UNSIGNED NOT NULL,
     `last_page` INT UNSIGNED NOT NULL DEFAULT 1,
     `total_pages` INT UNSIGNED NOT NULL DEFAULT 1,
+    `time_spent_sec` INT UNSIGNED NOT NULL DEFAULT 0,
+    `is_finished` TINYINT(1) NOT NULL DEFAULT 0,
     `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (`id`),
     UNIQUE KEY `uniq_rp_user_item` (`user_id`, `item_id`),
@@ -357,6 +402,125 @@ CREATE TABLE IF NOT EXISTS `media_sync` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uniq_media_rel_path` (`rel_path`),
     KEY `idx_media_sync_status` (`cdn_synced`, `local_exists`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `contact_messages` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `name` VARCHAR(120) NOT NULL,
+    `email` VARCHAR(190) NOT NULL,
+    `phone` VARCHAR(30) DEFAULT NULL,
+    `subject` VARCHAR(190) DEFAULT NULL,
+    `message` TEXT NOT NULL,
+    `ip` VARCHAR(45) NOT NULL,
+    `status` ENUM('new', 'read', 'replied') NOT NULL DEFAULT 'new',
+    `reply_message` TEXT DEFAULT NULL,
+    `replied_by` INT UNSIGNED DEFAULT NULL,
+    `replied_at` DATETIME DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_contact_status_time` (`status`, `created_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `reading_daily_usage` (
+    `user_id` INT UNSIGNED NOT NULL,
+    `item_id` INT UNSIGNED NOT NULL,
+    `usage_date` DATE NOT NULL,
+    `page_hits` INT UNSIGNED NOT NULL DEFAULT 0,
+    `updated_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`user_id`, `item_id`, `usage_date`),
+    CONSTRAINT `fk_rdu_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_rdu_item` FOREIGN KEY (`item_id`) REFERENCES `items` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `search_misses` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `query_text` VARCHAR(190) NOT NULL,
+    `lang` VARCHAR(5) NOT NULL DEFAULT 'bn',
+    `ip_address` VARCHAR(45) NOT NULL,
+    `hits` INT UNSIGNED NOT NULL DEFAULT 1,
+    `last_searched_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_sm_query` (`query_text`),
+    KEY `idx_sm_time` (`last_searched_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `search_queries` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `query_text` VARCHAR(190) NOT NULL,
+    `lang` VARCHAR(5) NOT NULL DEFAULT 'bn',
+    `hits` INT UNSIGNED NOT NULL DEFAULT 1,
+    `last_searched_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_sq_query` (`query_text`),
+    KEY `idx_sq_hits` (`hits`, `last_searched_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `recently_viewed` (
+    `user_id` INT UNSIGNED NOT NULL,
+    `item_id` INT UNSIGNED NOT NULL,
+    `viewed_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`user_id`, `item_id`),
+    KEY `idx_rv_user_time` (`user_id`, `viewed_at`),
+    CONSTRAINT `fk_rv_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_rv_item` FOREIGN KEY (`item_id`) REFERENCES `items` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `reader_bookmarks` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id` INT UNSIGNED NOT NULL,
+    `item_id` INT UNSIGNED NOT NULL,
+    `page_num` INT UNSIGNED NOT NULL,
+    `label` VARCHAR(120) NOT NULL DEFAULT '',
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_rb_user_item_page` (`user_id`, `item_id`, `page_num`),
+    KEY `idx_rb_lookup` (`user_id`, `item_id`),
+    CONSTRAINT `fk_rb_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE,
+    CONSTRAINT `fk_rb_item` FOREIGN KEY (`item_id`) REFERENCES `items` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `item_page_texts` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `item_id` INT UNSIGNED NOT NULL,
+    `page_num` INT UNSIGNED NOT NULL,
+    `is_staging` TINYINT(1) NOT NULL DEFAULT 0,
+    `norm_text` MEDIUMTEXT NOT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_ipt_item_page_stage` (`item_id`, `page_num`, `is_staging`),
+    KEY `idx_ipt_item_stage` (`item_id`, `is_staging`),
+    FULLTEXT KEY `ft_ipt_text` (`norm_text`),
+    CONSTRAINT `fk_ipt_item` FOREIGN KEY (`item_id`) REFERENCES `items` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `user_devices` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id` INT UNSIGNED NOT NULL,
+    `device_token` VARCHAR(128) NOT NULL,
+    `device_fingerprint` VARCHAR(64) DEFAULT NULL,
+    `device_label` VARCHAR(120) NOT NULL,
+    `ip_address` VARCHAR(45) NOT NULL,
+    `user_agent` VARCHAR(255) DEFAULT NULL,
+    `last_active_at` DATETIME NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_ud_token` (`device_token`),
+    KEY `idx_ud_user` (`user_id`, `last_active_at`),
+    CONSTRAINT `fk_ud_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `otp_verifications` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `user_id` INT UNSIGNED DEFAULT NULL,
+    `purpose` ENUM('phone_login', 'change_email', 'change_phone') NOT NULL,
+    `target` VARCHAR(190) NOT NULL,
+    `code_hash` VARCHAR(255) NOT NULL,
+    `expires_at` DATETIME NOT NULL,
+    `attempts` TINYINT UNSIGNED NOT NULL DEFAULT 0,
+    `verified_at` DATETIME DEFAULT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_otp_lookup` (`purpose`, `target`, `expires_at`),
+    CONSTRAINT `fk_otp_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================

@@ -85,46 +85,51 @@
         img.src = baseMeta + '/' + rel;
     }, true);
 
-    document.querySelectorAll('.bx-wish-btn[data-item-id]').forEach((btn) => {
-        btn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            const itemId = btn.getAttribute('data-item-id');
-            if (!itemId) return;
-            if (!loggedInMeta) {
-                const next = window.location.pathname + window.location.search;
-                window.location.href = baseMeta + '/login?next=' + encodeURIComponent(next);
-                return;
-            }
-            btn.disabled = true;
-            try {
-                const res = await fetch(baseMeta + '/api/wishlist-toggle', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ _csrf: csrfMeta, item_id: itemId })
-                });
-                if (res.status === 401) {
+    function bindWishButtons(rootEl) {
+        (rootEl || document).querySelectorAll('.bx-wish-btn[data-item-id]').forEach((btn) => {
+            if (btn.dataset.wishBound === '1') return;
+            btn.dataset.wishBound = '1';
+            btn.addEventListener('click', async (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const itemId = btn.getAttribute('data-item-id');
+                if (!itemId) return;
+                if (!loggedInMeta) {
                     const next = window.location.pathname + window.location.search;
                     window.location.href = baseMeta + '/login?next=' + encodeURIComponent(next);
                     return;
                 }
-                const data = await res.json();
-                if (data.ok) {
-                    document.querySelectorAll(`.bx-wish-btn[data-item-id="${itemId}"]`).forEach((el) => {
-                        el.classList.toggle('active', !!data.in_wishlist);
-                        el.setAttribute('aria-pressed', data.in_wishlist ? 'true' : 'false');
+                btn.disabled = true;
+                try {
+                    const res = await fetch(baseMeta + '/api/wishlist-toggle', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ _csrf: csrfMeta, item_id: itemId })
                     });
-                    window.bxToast(data.message || (data.in_wishlist ? 'Saved to wishlist' : 'Removed from wishlist'));
-                } else {
-                    window.bxToast(data.message || 'Could not update wishlist', 'danger');
+                    if (res.status === 401) {
+                        const next = window.location.pathname + window.location.search;
+                        window.location.href = baseMeta + '/login?next=' + encodeURIComponent(next);
+                        return;
+                    }
+                    const data = await res.json();
+                    if (data.ok) {
+                        document.querySelectorAll(`.bx-wish-btn[data-item-id="${itemId}"]`).forEach((el) => {
+                            el.classList.toggle('active', !!data.in_wishlist);
+                            el.setAttribute('aria-pressed', data.in_wishlist ? 'true' : 'false');
+                        });
+                        window.bxToast(data.message || (data.in_wishlist ? 'Saved to wishlist' : 'Removed from wishlist'));
+                    } else {
+                        window.bxToast(data.message || 'Could not update wishlist', 'danger');
+                    }
+                } catch (err) {
+                    window.bxToast('Network error updating wishlist', 'danger');
+                } finally {
+                    btn.disabled = false;
                 }
-            } catch (err) {
-                window.bxToast('Network error updating wishlist', 'danger');
-            } finally {
-                btn.disabled = false;
-            }
+            });
         });
-    });
+    }
+    bindWishButtons(document);
 
     // Header Notification Bell Dropdown & Mark Read Actions
     const notifBtn = document.getElementById('bx-notif-btn');
@@ -199,6 +204,23 @@
     if (couponBox && couponBtn && couponInp) {
         const fmtBdt = (v) => '৳' + (Math.round(Number(v) * 100) % 100 === 0 ? Math.round(Number(v)) : Number(v).toFixed(2));
         const basePrice = parseFloat(couponBox.getAttribute('data-base-price') || '0');
+        const syncManualPayVisibility = (finalAmt) => {
+            const box = document.getElementById('bx-manual-pay-fields');
+            const senderInp = document.getElementById('sender_number');
+            const trxInp = document.getElementById('transaction_id');
+            const methSel = document.getElementById('payment_method');
+            const subBtn = document.getElementById('checkout-submit-btn');
+            const isFree = Number(finalAmt) <= 0;
+            if (box) box.style.display = isFree ? 'none' : '';
+            if (senderInp) senderInp.required = !isFree;
+            if (trxInp) trxInp.required = !isFree;
+            if (methSel) methSel.required = !isFree;
+            if (subBtn) {
+                const span = subBtn.querySelector('span');
+                const lbl = isFree ? subBtn.getAttribute('data-free-label') : subBtn.getAttribute('data-paid-label');
+                if (span && lbl) span.textContent = lbl;
+            }
+        };
         const applyCoupon = async () => {
             const code = couponInp.value.trim();
             const fb = document.getElementById('coupon-feedback');
@@ -210,6 +232,7 @@
                 if (discRow) discRow.style.display = 'none';
                 if (totEl) totEl.textContent = fmtBdt(basePrice);
                 if (fb) { fb.textContent = ''; }
+                syncManualPayVisibility(basePrice);
                 return;
             }
             couponBtn.disabled = true;
@@ -230,11 +253,13 @@
                     if (discEl) discEl.textContent = '-' + fmtBdt(data.discount_amount);
                     if (totEl) totEl.textContent = fmtBdt(data.final_amount);
                     if (fb) { fb.textContent = data.message; fb.style.color = 'var(--teal-text)'; }
+                    syncManualPayVisibility(data.final_amount);
                 } else {
                     if (couponHid) couponHid.value = '';
                     if (discRow) discRow.style.display = 'none';
                     if (totEl) totEl.textContent = fmtBdt(basePrice);
                     if (fb) { fb.textContent = data.message || 'Invalid coupon'; fb.style.color = 'var(--rose-text)'; }
+                    syncManualPayVisibility(basePrice);
                 }
             } catch (err) {
                 if (fb) { fb.textContent = 'Error checking coupon'; fb.style.color = 'var(--rose-text)'; }
@@ -327,14 +352,10 @@
     } else {
         reveals.forEach((el) => el.classList.add('is-visible'));
     }
-})();
 
-
-/**
- * Hero Slider, 3D Portal/Detail Tilt & Folder Loading Skeleton
- */
-(function () {
-    'use strict';
+    // -------------------------------------------------------------------------
+    // Hero Slider, 3D Portal/Detail Tilt, Search Suggestions & Load More
+    // -------------------------------------------------------------------------
 
     // Hero Slider
     const slider = document.querySelector('[data-hero-slider]');
@@ -425,6 +446,163 @@
             btn.textContent = btn.getAttribute('data-loading-label') || btn.textContent;
         });
     });
+
+    // Print Invoice buttons & Public Confirm Prompts (strict CSP-safe)
+    document.querySelectorAll('[data-print-btn]').forEach((btn) => {
+        btn.addEventListener('click', () => window.print());
+    });
+    document.addEventListener('click', (e) => {
+        const trg = e.target.closest('[data-confirm]');
+        if (!trg) return;
+        const msg = trg.getAttribute('data-confirm') || 'Are you sure?';
+        if (!window.confirm(msg)) {
+            e.preventDefault();
+        }
+    });
+
+    // Live Search Suggestions (Debounced AJAX, max 6 results across folders & books)
+    document.querySelectorAll('[data-suggest-input]').forEach((inp) => {
+        const box = inp.closest('form')?.querySelector('.bx-suggest-dropdown');
+        if (!box) return;
+        let timer = null;
+        let ctrl = null;
+
+        function hideBox() { box.hidden = true; }
+        function buildLink(label, subText, href, badgeText) {
+            const a = document.createElement('a');
+            a.className = 'bx-suggest-item';
+            a.href = href;
+            const left = document.createElement('span');
+            left.style.minWidth = '0';
+            const titleEl = document.createElement('strong');
+            titleEl.textContent = label;
+            left.appendChild(titleEl);
+            if (subText) {
+                const subEl = document.createElement('small');
+                subEl.style.display = 'block';
+                subEl.style.color = 'var(--text-muted)';
+                subEl.textContent = subText;
+                left.appendChild(subEl);
+            }
+            a.appendChild(left);
+            if (badgeText) {
+                const b = document.createElement('span');
+                b.className = 'bx-badge';
+                b.textContent = badgeText;
+                a.appendChild(b);
+            }
+            return a;
+        }
+
+        inp.addEventListener('input', () => {
+            clearTimeout(timer);
+            const q = inp.value.trim();
+            if (q.length < 1) { hideBox(); return; }
+            timer = setTimeout(async () => {
+                if (ctrl) ctrl.abort();
+                ctrl = new AbortController();
+                try {
+                    const res = await fetch(baseMeta + '/api/search-suggest?q=' + encodeURIComponent(q), {
+                        signal: ctrl.signal, credentials: 'same-origin'
+                    });
+                    const data = await res.json();
+                    box.innerHTML = '';
+                    const folders = (data && data.folders) || [];
+                    const items = (data && data.items) || [];
+                    if (!folders.length && !items.length) { hideBox(); return; }
+                    if (folders.length) {
+                        const hdr = document.createElement('div');
+                        hdr.className = 'bx-suggest-group';
+                        hdr.textContent = 'Folders';
+                        box.appendChild(hdr);
+                        folders.forEach((f) => box.appendChild(buildLink(f.title, '', f.url, 'Folder')));
+                    }
+                    if (items.length) {
+                        const hdr = document.createElement('div');
+                        hdr.className = 'bx-suggest-group';
+                        hdr.textContent = 'PDFs';
+                        box.appendChild(hdr);
+                        items.forEach((it) => box.appendChild(buildLink(it.title, it.sub || '', it.url, it.badge || '')));
+                    }
+                    box.hidden = false;
+                } catch (e) {}
+            }, 220);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!box.contains(e.target) && e.target !== inp) hideBox();
+        });
+    });
+
+    // Load More Pagination (Folder, Search, Library, Wishlist)
+    document.querySelectorAll('[data-load-more]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const nextUrl = btn.getAttribute('data-next-url');
+            const gridSel = btn.getAttribute('data-target-grid');
+            const grid = gridSel ? document.querySelector(gridSel) : null;
+            if (!nextUrl || !grid || btn.disabled) return;
+            btn.disabled = true;
+            try {
+                const res = await fetch(nextUrl, { credentials: 'same-origin' });
+                const html = await res.text();
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const nextGrid = doc.querySelector(gridSel);
+                if (nextGrid) {
+                    Array.from(nextGrid.children).forEach((child) => {
+                        child.classList.add('is-visible');
+                        grid.appendChild(child);
+                    });
+                    bindWishButtons(grid);
+                    attach3dTilt('.bx-book-3d', '.bx-book-card');
+                }
+                const nextBtn = doc.querySelector('[data-load-more]');
+                if (nextBtn) {
+                    btn.setAttribute('data-next-url', nextBtn.getAttribute('data-next-url') || '');
+                    btn.textContent = nextBtn.textContent;
+                    btn.disabled = false;
+                } else {
+                    btn.remove();
+                }
+            } catch (err) {
+                btn.disabled = false;
+                window.location.href = nextUrl;
+            }
+        });
+    });
+
+    // Recently Viewed Guest localStorage Tracking & Home Hydration
+    const recentEl = document.querySelector('[data-recent-item]');
+    if (recentEl) {
+        const rid = parseInt(recentEl.getAttribute('data-recent-item') || '0', 10);
+        if (rid > 0) {
+            try {
+                let list = JSON.parse(localStorage.getItem('bookexa_recent_views') || '[]');
+                if (!Array.isArray(list)) list = [];
+                list = [rid, ...list.filter((id) => Number(id) !== rid)].slice(0, 12);
+                localStorage.setItem('bookexa_recent_views', JSON.stringify(list));
+            } catch (e) {}
+        }
+    }
+    const guestRecGrid = document.getElementById('bx-guest-recent-grid');
+    const guestRecSec  = document.getElementById('bx-guest-recent-sec');
+    if (guestRecGrid && guestRecSec) {
+        try {
+            const ids = JSON.parse(localStorage.getItem('bookexa_recent_views') || '[]');
+            if (Array.isArray(ids) && ids.length > 0) {
+                fetch(baseMeta + '/api/items-by-ids?ids=' + encodeURIComponent(ids.slice(0, 8).join(',')))
+                    .then((r) => r.json())
+                    .then((d) => {
+                        if (d && d.ok && d.html) {
+                            guestRecGrid.innerHTML = d.html;
+                            guestRecGrid.querySelectorAll('.bx-reveal').forEach((el) => el.classList.add('is-visible'));
+                            bindWishButtons(guestRecGrid);
+                            attach3dTilt('.bx-book-3d', '.bx-book-card');
+                            guestRecSec.hidden = false;
+                        }
+                    }).catch(() => {});
+            }
+        } catch (e) {}
+    }
 
     // Mobile Soft Keyboard Focus Visibility (ensures sticky bottom bar / keyboard never hides active field)
     document.addEventListener('focusin', (e) => {

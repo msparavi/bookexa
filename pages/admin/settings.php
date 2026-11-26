@@ -50,13 +50,13 @@ foreach ($rows as $r) {
             <div class="bx-grid-2" style="gap:12px;margin-bottom:12px;">
                 <div>
                     <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'সাইট লোগো' : 'Site Logo (Camera / Gallery)' ?></label>
-                    <input type="file" name="site_logo" accept="image/*" class="bx-input" data-preview-target="settings-logo-preview">
+                    <input type="file" name="site_logo" accept="image/jpeg,image/png,image/webp" class="bx-input" data-preview-target="settings-logo-preview">
                     <?php $logoSrc = !empty($cfg['site_logo']) ? asset($cfg['site_logo']) : asset('assets/img/logo.svg'); ?>
                     <img id="settings-logo-preview" src="<?= e($logoSrc) ?>" alt="Logo" class="bx-live-preview" style="max-height:58px;">
                 </div>
                 <div>
                     <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'ফেভিকন' : 'Site Favicon (PNG/WebP/ICO)' ?></label>
-                    <input type="file" name="site_favicon" accept="image/*,.ico" class="bx-input" data-preview-target="settings-fav-preview">
+                    <input type="file" name="site_favicon" accept="image/jpeg,image/png,image/webp,.ico" class="bx-input" data-preview-target="settings-fav-preview">
                     <?php $favSrc = !empty($cfg['site_favicon']) ? asset($cfg['site_favicon']) : asset('assets/img/favicon.svg'); ?>
                     <img id="settings-fav-preview" src="<?= e($favSrc) ?>" alt="Favicon" class="bx-live-preview" style="width:48px;height:48px;">
                 </div>
@@ -107,8 +107,73 @@ foreach ($rows as $r) {
                 <label><?= $lang === 'bn' ? 'পেমেন্ট নির্দেশনা (ইংরেজি)' : 'Payment Instructions (English)' ?></label>
                 <textarea name="payment_instructions_en" class="bx-input" rows="3"><?= e($cfg['payment_instructions_en'] ?? '') ?></textarea>
             </div>
+
+            <div class="bx-field">
+                <label for="pending_order_expire_days"><?= $lang === 'bn' ? 'অপেক্ষমাণ অর্ডার স্বয়ংক্রিয় মেয়াদোত্তীর্ণ হবে (দিন পর)' : 'Auto-expire pending orders after N days' ?></label>
+                <input type="number" id="pending_order_expire_days" name="pending_order_expire_days" min="1" max="365" class="bx-input" style="max-width:200px;" value="<?= e((string) ($cfg['pending_order_expire_days'] ?? '3')) ?>">
+                <small style="display:block;color:var(--text-muted);margin-top:4px;"><?= $lang === 'bn' ? 'ডিফল্ট ৩ দিন। মেয়াদ শেষে কুপন পুনরায় মুক্ত হয় ও ব্যবহারকারী নোটিফিকেশন পান।' : 'Default 3 days. Expired orders release reserved coupons automatically and notify customers.' ?></small>
+            </div>
         </section>
     </div>
+
+    <!-- Optional Automatic Payment Gateway Adapter (Disabled by Default) -->
+    <section class="bx-card" style="margin-bottom:20px;">
+        <h2 style="margin:0 0 8px;font-size:1.12rem;font-family:var(--font-serif);">
+            <?= $lang === 'bn' ? 'স্বয়ংক্রিয় বাংলাদেশি পেমেন্ট গেটওয়ে (ঐচ্ছিক)' : 'Automatic Payment Gateway Adapter (Optional)' ?>
+        </h2>
+        <small style="display:block;color:var(--text-muted);margin-bottom:14px;">
+            <?= $lang === 'bn'
+                ? 'ডিফল্টভাবে বন্ধ থাকে যাতে বর্তমান ম্যানুয়াল bKash/Nagad/Rocket প্রক্রিয়া অপরিবর্তিত থাকে। প্রয়োজনে পরবর্তীতে চালু করুন।'
+                : 'Disabled by default so existing manual checkout stays active. Enable when connecting bKash Tokenized, aamarPay, or UddoktaPay.' ?>
+        </small>
+
+        <div style="display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;">
+            <label style="display:flex;align-items:center;gap:8px;min-height:44px;font-weight:700;">
+                <input type="checkbox" name="payment_gateway_enabled" value="1" <?= ($cfg['payment_gateway_enabled'] ?? '0') === '1' ? 'checked' : '' ?>>
+                <span><?= $lang === 'bn' ? 'স্বয়ংক্রিয় গেটওয়ে চালু করুন' : 'Enable Automatic Payment Gateway' ?></span>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;min-height:44px;font-weight:600;">
+                <input type="checkbox" name="payment_gateway_sandbox" value="1" <?= ($cfg['payment_gateway_sandbox'] ?? '1') === '1' ? 'checked' : '' ?>>
+                <span><?= $lang === 'bn' ? 'স্যান্ডবক্স টেস্ট মোড চালু রাখুন' : 'Sandbox Test Mode' ?></span>
+            </label>
+        </div>
+
+        <div class="bx-grid-2" style="margin-bottom:12px;">
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'গেটওয়ে ড্রাইভার' : 'Gateway Driver' ?></label>
+                <?php $gwDrv = (string) ($cfg['payment_gateway_driver'] ?? 'manual'); ?>
+                <select name="payment_gateway_driver" class="bx-input">
+                    <option value="manual" <?= $gwDrv === 'manual' ? 'selected' : '' ?>>Manual (bKash / Nagad / Rocket)</option>
+                    <option value="bkash_tokenized" <?= $gwDrv === 'bkash_tokenized' ? 'selected' : '' ?>>bKash Tokenized Checkout</option>
+                    <option value="aamarpay" <?= $gwDrv === 'aamarpay' ? 'selected' : '' ?>>aamarPay</option>
+                    <option value="uddoktapay" <?= $gwDrv === 'uddoktapay' ? 'selected' : '' ?>>UddoktaPay</option>
+                </select>
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'API বেস URL' : 'Gateway API Base URL' ?></label>
+                <input type="url" name="payment_gateway_base_url" class="bx-input" placeholder="https://sandbox.gateway.example/api" value="<?= e($cfg['payment_gateway_base_url'] ?? '') ?>">
+            </div>
+        </div>
+
+        <div class="bx-grid-3" style="margin-bottom:12px;">
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;">API Key / Store ID</label>
+                <input type="text" name="payment_gateway_api_key" class="bx-input" autocomplete="off" value="<?= e($cfg['payment_gateway_api_key'] ?? '') ?>">
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;">API Secret</label>
+                <input type="password" name="payment_gateway_api_secret" class="bx-input" autocomplete="new-password" placeholder="<?= !empty($cfg['payment_gateway_api_secret']) ? 'Saved — leave blank to keep' : 'Enter API Secret' ?>">
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;">Webhook Signing Secret</label>
+                <input type="password" name="payment_gateway_webhook_secret" class="bx-input" autocomplete="new-password" placeholder="<?= !empty($cfg['payment_gateway_webhook_secret']) ? 'Saved — leave blank to keep' : 'Enter Webhook Secret' ?>">
+            </div>
+        </div>
+
+        <div style="padding:10px 12px;border-radius:10px;background:var(--bg-alt);border:1px solid var(--border);font-size:0.84rem;">
+            <strong>Webhook Callback URL:</strong> <code><?= e(url('/api/payment-webhook')) ?></code>
+        </div>
+    </section>
 
     <!-- Built-in SMTP Email Settings + Send Test Email -->
     <section class="bx-card" style="margin-bottom:20px;">
@@ -163,7 +228,52 @@ foreach ($rows as $r) {
             <small id="smtp-test-result" style="display:block;margin-top:6px;font-weight:600;"></small>
         </div>
 
-        <div style="padding:12px;border-radius:12px;background:var(--bg-alt);border:1px solid var(--border);">
+        <div class="bx-grid-2" style="margin-bottom:14px;">
+            <div>
+                <label for="reader_daily_quota_mult" style="display:block;font-weight:600;margin-bottom:4px;">
+                    <?= $lang === 'bn' ? 'দৈনিক পাঠ সীমা গুণিতক (প্রতি বইয়ের মোট পৃষ্ঠার × গুণ)' : 'Daily Reader Quota Multiplier (× book total pages per user/day)' ?>
+                </label>
+                <input type="number" id="reader_daily_quota_mult" name="reader_daily_quota_mult" min="0" max="100" class="bx-input" style="max-width:220px;" value="<?= e((string) ($cfg['reader_daily_quota_mult'] ?? '3')) ?>">
+                <small style="display:block;color:var(--text-muted);margin-top:4px;">
+                    <?= $lang === 'bn'
+                        ? 'ডিফল্ট ৩ (যেমন: ১০০ পৃষ্ঠার বই দিনে সর্বোচ্চ ৩০০ পৃষ্ঠা রেন্ডার করা যাবে)। ০ দিলে সীমাহীন।'
+                        : 'Default 3 (e.g. a 100-page book allows up to 300 protected page fetches per user per day). Set 0 for unlimited.' ?>
+                </small>
+            </div>
+            <div>
+                <label for="max_devices_per_account" style="display:block;font-weight:600;margin-bottom:4px;">
+                    <?= $lang === 'bn' ? 'সর্বোচ্চ সক্রিয় ডিভাইস প্রতি অ্যাকাউন্ট' : 'Max Logged-In Devices per Account' ?>
+                </label>
+                <input type="number" id="max_devices_per_account" name="max_devices_per_account" min="1" max="10" class="bx-input" style="max-width:220px;" value="<?= e((string) ($cfg['max_devices_per_account'] ?? '2')) ?>">
+                <small style="display:block;color:var(--text-muted);margin-top:4px;">
+                    <?= $lang === 'bn'
+                        ? 'ডিফল্ট ২টি ডিভাইস একসাথে লগইন থাকবে (তবে রিডার একসাথে ১টি সেশনেই চলবে)।'
+                        : 'Default 2 logged-in browsers allowed without signing each other out (1 concurrent reader session still enforced).' ?>
+                </small>
+            </div>
+        </div>
+
+        <div class="bx-grid-2" style="margin-bottom:14px;">
+            <div>
+                <label for="max_concurrent_page_renders" style="display:block;font-weight:600;margin-bottom:4px;">
+                    <?= $lang === 'bn' ? 'সর্বোচ্চ যুগপৎ পৃষ্ঠা রেন্ডার (/api/page)' : 'Max Concurrent Page Renders (/api/page Busy Limit)' ?>
+                </label>
+                <input type="number" id="max_concurrent_page_renders" name="max_concurrent_page_renders" min="1" max="64" class="bx-input" style="max-width:220px;" value="<?= e((string) ($cfg['max_concurrent_page_renders'] ?? '8')) ?>">
+                <small style="display:block;color:var(--text-muted);margin-top:4px;">
+                    <?= $lang === 'bn'
+                        ? 'শেয়ার্ড হোস্টিং CPU বাঁচাতে একসাথে কতটি পৃষ্ঠা রেন্ডার হবে (বেশি হলে 503 Retry-After দেবে)।'
+                        : 'Protects shared hosting CPU by returning HTTP 503 + Retry-After when active GD renders exceed this cap (default 8).' ?>
+                </small>
+            </div>
+            <div style="display:flex;align-items:center;">
+                <label style="display:flex;align-items:center;gap:8px;min-height:44px;font-weight:600;">
+                    <input type="checkbox" name="reader_mobile_lightweight" value="1" <?= ($cfg['reader_mobile_lightweight'] ?? '1') === '1' ? 'checked' : '' ?>>
+                    <span><?= $lang === 'bn' ? 'ফোনে স্বয়ংক্রিয় ১০০০px হালকা পৃষ্ঠা ছবি পাঠান' : 'Enable lightweight 1000px phone page images by default' ?></span>
+                </label>
+            </div>
+        </div>
+
+        <div style="padding:12px;border-radius:12px;background:var(--bg-alt);border:1px solid var(--border);margin-bottom:16px;">
             <label for="google_drive_api_key" style="display:block;font-weight:600;margin-bottom:4px;">
                 <?= $lang === 'bn' ? 'Google Drive API Key (ঐচ্ছিক — বড় বা কোটা-সুরক্ষিত ফাইলের জন্য)' : 'Google Drive API Key (Optional — Official Drive v3 Stream Mode)' ?>
             </label>
@@ -176,6 +286,46 @@ foreach ($rows as $r) {
                         <?= $lang === 'bn' ? 'সংরক্ষিত API Key মুছুন' : 'Clear saved API key' ?>
                     </label>
                 <?php endif; ?>
+            </div>
+        </div>
+
+        <!-- SMS OTP Gateway Adapter (Disabled by default) -->
+        <div style="padding:14px;border-radius:12px;background:var(--bg-alt);border:1px solid var(--border);">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                <strong style="font-size:0.96rem;"><?= $lang === 'bn' ? 'SMS OTP গেটওয়ে অ্যাডাপ্টার (ঐচ্ছিক)' : 'SMS OTP Gateway Adapter (Optional, Disabled by Default)' ?></strong>
+                <div style="display:flex;gap:12px;flex-wrap:wrap;">
+                    <label style="display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:0.86rem;">
+                        <input type="checkbox" name="sms_gateway_enabled" value="1" <?= ($cfg['sms_gateway_enabled'] ?? '0') === '1' ? 'checked' : '' ?>>
+                        <?= $lang === 'bn' ? 'OTP লগইন চালু করুন' : 'Enable SMS OTP Login' ?>
+                    </label>
+                    <label style="display:inline-flex;align-items:center;gap:6px;font-weight:600;font-size:0.86rem;">
+                        <input type="checkbox" name="sms_gateway_sandbox" value="1" <?= ($cfg['sms_gateway_sandbox'] ?? '1') === '1' ? 'checked' : '' ?>>
+                        <?= $lang === 'bn' ? 'স্যান্ডবক্স মোড' : 'Sandbox Mode' ?>
+                    </label>
+                </div>
+            </div>
+            <div class="bx-grid-2" style="margin-bottom:10px;">
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.85rem;">Driver</label>
+                    <select name="sms_gateway_driver" class="bx-input">
+                        <option value="none" <?= ($cfg['sms_gateway_driver'] ?? 'none') === 'none' ? 'selected' : '' ?>>Disabled / None</option>
+                        <option value="generic" <?= ($cfg['sms_gateway_driver'] ?? '') === 'generic' ? 'selected' : '' ?>>Generic HTTP SMS API (SSLWireless / BulkSMSBD / Sandbox)</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.85rem;">Sender ID / Masking</label>
+                    <input type="text" name="sms_gateway_sender_id" class="bx-input" value="<?= e((string) ($cfg['sms_gateway_sender_id'] ?? 'Bookexa')) ?>">
+                </div>
+            </div>
+            <div class="bx-grid-2">
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.85rem;">SMS HTTP API Endpoint URL</label>
+                    <input type="url" name="sms_gateway_api_url" class="bx-input" placeholder="https://sms.provider.com/api/v1/send" value="<?= e((string) ($cfg['sms_gateway_api_url'] ?? '')) ?>">
+                </div>
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.85rem;">SMS API Key / Token</label>
+                    <input type="password" name="sms_gateway_api_key" class="bx-input" autocomplete="new-password" placeholder="<?= !empty($cfg['sms_gateway_api_key']) ? 'Saved — leave blank to keep' : 'Enter API key' ?>">
+                </div>
             </div>
         </div>
     </section>
@@ -231,6 +381,30 @@ foreach ($rows as $r) {
         </button>
     </div>
 </form>
+
+<section class="bx-card" style="margin-top:20px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
+        <div style="flex:1 1 320px;min-width:0;">
+            <h2 style="margin:0 0 4px;font-size:1.08rem;font-family:var(--font-serif);">
+                <?= $lang === 'bn' ? 'CDN ক্রন সিঙ্ক কী ও URL' : 'CDN Cron Sync Key & URL' ?>
+            </h2>
+            <small style="color:var(--text-muted);display:block;margin-bottom:8px;">
+                <?= $lang === 'bn'
+                    ? 'সার্ভারের ক্রন জবে নিচের URL ব্যবহার করুন। নিরাপত্তা ঝুঁকি মনে হলে কী পরিবর্তন (Regenerate) করুন।'
+                    : 'Use this URL in cPanel cron jobs to sync pending media automatically. Rotate the key anytime to revoke older cron links.' ?>
+            </small>
+            <input type="text" readonly class="bx-input" style="font-family:monospace;font-size:0.82rem;" value="<?= e(url('/cron/sync_media.php?key=' . cron_sync_token())) ?>">
+        </div>
+        <form method="post" action="<?= e(url('/admin/settings')) ?>" style="margin:0;">
+            <?= csrf_field() ?>
+            <input type="hidden" name="action" value="regenerate_cron_key">
+            <input type="hidden" name="_return" value="/admin/settings">
+            <button type="submit" class="bx-btn bx-btn-outline" data-confirm="<?= e($lang === 'bn' ? 'নতুন ক্রন কী তৈরি করলে পুরনো ক্রন URL আর কাজ করবে না। নিশ্চিত?' : 'Regenerating the cron key will immediately invalidate the previous cron URL. Continue?') ?>">
+                <?= $lang === 'bn' ? 'ক্রন কী রিজেনারেট করুন' : 'Regenerate cron key' ?>
+            </button>
+        </form>
+    </div>
+</section>
 
 <?php if (($admin['role'] ?? '') === 'superadmin'): ?>
 <section class="bx-card" style="margin-top:20px;">

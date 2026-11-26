@@ -92,10 +92,12 @@ $auditLogs = db_all('SELECT * FROM admin_logs ORDER BY id DESC LIMIT 100');
 
             <div class="bx-grid-2" style="gap:12px;margin-bottom:12px;">
                 <div>
-                    <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'রোল' : 'Role' ?></label>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'রোল ও অনুমতি' : 'Role & Permissions' ?></label>
                     <select name="role" class="bx-input">
-                        <option value="editor" <?= ($editAdmin['role'] ?? 'editor') === 'editor' ? 'selected' : '' ?>>Editor (Content & Orders)</option>
-                        <option value="superadmin" <?= ($editAdmin['role'] ?? '') === 'superadmin' ? 'selected' : '' ?>>Super Admin (Full Control)</option>
+                        <option value="editor" <?= ($editAdmin['role'] ?? 'editor') === 'editor' ? 'selected' : '' ?>>Editor (Content: Banners, Folders, PDFs, Queue, Reviews)</option>
+                        <option value="support" <?= ($editAdmin['role'] ?? '') === 'support' ? 'selected' : '' ?>>Support (Orders, Support Inbox, Users Read-Only)</option>
+                        <option value="analyst" <?= ($editAdmin['role'] ?? '') === 'analyst' ? 'selected' : '' ?>>Analyst (Reports & Analytics Only)</option>
+                        <option value="superadmin" <?= ($editAdmin['role'] ?? '') === 'superadmin' ? 'selected' : '' ?>>Super Admin (Full Control & System Health)</option>
                     </select>
                 </div>
                 <div>

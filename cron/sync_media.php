@@ -10,10 +10,9 @@ require_once dirname(__DIR__) . '/includes/bootstrap.php';
 
 $isCli = (PHP_SAPI === 'cli');
 if (!$isCli) {
-    $secret = (string) app_config('security.app_secret', '');
-    $expectedKey = hash_hmac('sha256', 'cron_sync_media', $secret);
+    $expectedKey = cron_sync_token();
     $given = (string) ($_GET['key'] ?? '');
-    if ($secret === '' || !hash_equals($expectedKey, $given)) {
+    if ($expectedKey === '' || !hash_equals($expectedKey, $given)) {
         http_response_code(403);
         header('Content-Type: application/json');
         echo json_encode(['ok' => false, 'message' => 'Forbidden']);
@@ -25,6 +24,10 @@ if (!$isCli) {
 $added = media_scan_local_uploads();
 $batch = cdn_config()['sync_batch'];
 $res = media_sync_pending_batch(max(10, $batch), true);
+try {
+    db_exec("INSERT INTO settings (setting_key, setting_value) VALUES ('last_cron_at', NOW()) ON DUPLICATE KEY UPDATE setting_value = NOW()");
+} catch (Throwable $e) {
+}
 $payload = ['ok' => true, 'scanned_new' => $added, 'sync' => $res];
 
 echo json_encode($payload, JSON_PRETTY_PRINT) . "\n";

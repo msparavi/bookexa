@@ -108,6 +108,11 @@ function render_stars_html(float $rating): string
 // ============================================================================
 // 3. COUPONS & DISCOUNTS
 // ============================================================================
+function normalize_transaction_id(string $raw): string
+{
+    return strtoupper(preg_replace('/[^A-Za-z0-9]/', '', trim($raw)) ?? '');
+}
+
 function validate_coupon_for_checkout(string $rawCode, int $userId, int $itemId, float $basePrice): array
 {
     $code = strtoupper(trim($rawCode));

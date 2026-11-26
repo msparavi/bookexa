@@ -348,6 +348,25 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
     overflow: hidden;
     isolation: isolate;
 }
+.bx-pagination a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 40px;
+    min-height: 40px;
+    padding: 6px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    color: var(--text);
+    text-decoration: none;
+    font-weight: 600;
+}
+.bx-pagination a.active {
+    background: var(--primary);
+    color: #ffffff;
+    border-color: var(--primary);
+}
 
 .bx-admin-nav a:active::after,
 .bx-kebab-btn:active::after,

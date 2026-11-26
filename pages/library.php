@@ -1,7 +1,16 @@
 <?php
 declare(strict_types=1);
-/** @var array $user, array $libraryItems */
+/**
+ * My Library with reading stats (pages read, books finished, time spent) and 24/page Load More.
+ * @var array $user, array $libraryItems, array $filters, int $page, int $totalPages, int $totalItems, array $readingStats
+ */
 $lang = current_lang();
+$minsTot = (int) floor(((int) ($readingStats['time_spent_sec'] ?? 0)) / 60);
+$hrs = intdiv($minsTot, 60);
+$mins = $minsTot % 60;
+$timeFmt = $hrs > 0
+    ? ($lang === 'bn' ? num_localize($hrs) . ' ঘঃ ' . num_localize($mins) . ' মিঃ' : "{$hrs}h {$mins}m")
+    : ($lang === 'bn' ? num_localize($mins) . ' মিনিট' : "{$mins}m");
 ?>
 <div class="container" style="padding-top:24px;">
     <nav class="bx-breadcrumb" aria-label="Breadcrumb">
@@ -18,6 +27,22 @@ $lang = current_lang();
         <a href="<?= e(url('/orders')) ?>" class="bx-btn bx-btn-outline bx-btn-sm"><?= icon('cart') ?> <?= $lang === 'bn' ? 'আমার অর্ডার' : 'My Orders' ?></a>
     </div>
 
+    <!-- Reading Stats Summary -->
+    <div class="bx-stats-grid" aria-label="Reading Statistics">
+        <div class="bx-stat-tile">
+            <small><?= $lang === 'bn' ? 'মোট পঠিত পৃষ্ঠা' : 'Pages Read' ?></small>
+            <strong><?= e(num_localize((int) ($readingStats['pages_read'] ?? 0))) ?></strong>
+        </div>
+        <div class="bx-stat-tile">
+            <small><?= $lang === 'bn' ? 'সমাপ্ত বই' : 'Books Finished' ?></small>
+            <strong style="color:var(--teal-text);"><?= e(num_localize((int) ($readingStats['books_finished'] ?? 0))) ?></strong>
+        </div>
+        <div class="bx-stat-tile">
+            <small><?= $lang === 'bn' ? 'পড়ার সময়' : 'Time Spent' ?></small>
+            <strong style="color:var(--gold-text);"><?= e($timeFmt) ?></strong>
+        </div>
+    </div>
+
     <?php if (empty($libraryItems)): ?>
         <div class="bx-empty-state">
             <?= illustration_svg('empty') ?>
@@ -26,7 +51,7 @@ $lang = current_lang();
             <a href="<?= e(url('/pdf')) ?>" class="bx-btn bx-btn-primary bx-btn-sm"><?= e(t('portal_pdf_cta')) ?></a>
         </div>
     <?php else: ?>
-        <div class="bx-book-grid">
+        <div class="bx-book-grid" id="bx-library-grid">
             <?php foreach ($libraryItems as $item): ?>
                 <?php
                 $isFree = (bool) $item['is_free'] || (float) $item['price'] <= 0;
@@ -60,5 +85,6 @@ $lang = current_lang();
                 </div>
             <?php endforeach; ?>
         </div>
+        <?= render_browse_pagination('/library', $filters, $page, $totalPages, $totalItems, 'bx-library-grid') ?>
     <?php endif; ?>
 </div>

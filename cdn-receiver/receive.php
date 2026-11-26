@@ -30,6 +30,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $ts      = (int) ($_POST['ts'] ?? $_SERVER['HTTP_X_BOOKEXA_TS'] ?? 0);
+$nonce   = strtolower(trim((string) ($_POST['nonce'] ?? $_SERVER['HTTP_X_BOOKEXA_NONCE'] ?? '')));
 $action  = trim((string) ($_POST['action'] ?? $_SERVER['HTTP_X_BOOKEXA_ACTION'] ?? ''));
 $relPath = str_replace('\\', '/', trim((string) ($_POST['rel_path'] ?? $_SERVER['HTTP_X_BOOKEXA_PATH'] ?? '')));
 $sig     = strtolower(trim((string) ($_POST['sig'] ?? $_SERVER['HTTP_X_BOOKEXA_SIG'] ?? '')));
@@ -37,6 +38,9 @@ $sha1In  = strtolower(trim((string) ($_POST['sha1'] ?? '')));
 
 if ($ts <= 0 || abs(time() - $ts) > 300) {
     receiver_fail(403, 'Request timestamp expired.');
+}
+if (!preg_match('/^[a-f0-9]{16,64}$/', $nonce)) {
+    receiver_fail(403, 'Missing or invalid request nonce.');
 }
 if (!in_array($action, ['put', 'delete', 'exists'], true)) {
     receiver_fail(400, 'Invalid action.');
@@ -49,10 +53,40 @@ if (
     receiver_fail(403, 'Invalid or disallowed relative image path.');
 }
 
-$expectedSig = hash_hmac('sha256', "{$ts}|{$action}|{$relPath}|{$sha1In}", $secret);
+$expectedSig = hash_hmac('sha256', "{$ts}|{$nonce}|{$action}|{$relPath}|{$sha1In}", $secret);
 if (!hash_equals($expectedSig, $sig)) {
     receiver_fail(403, 'Invalid HMAC signature.');
 }
+
+// Replay prevention within 5-minute timestamp window
+$nonceStore = sys_get_temp_dir() . '/bx_cdn_nonces_' . substr(sha1(__FILE__), 0, 12) . '.json';
+$nfp = @fopen($nonceStore, 'c+');
+if ($nfp === false || !flock($nfp, LOCK_EX)) {
+    if ($nfp) {
+        fclose($nfp);
+    }
+    receiver_fail(500, 'Nonce verification store unavailable.');
+}
+$rawNonces = stream_get_contents($nfp);
+$seenNonces = is_string($rawNonces) && $rawNonces !== '' ? (json_decode($rawNonces, true) ?: []) : [];
+$cutoff = time() - 360;
+foreach ($seenNonces as $kNonce => $seenTs) {
+    if ((int) $seenTs < $cutoff) {
+        unset($seenNonces[$kNonce]);
+    }
+}
+if (isset($seenNonces[$nonce])) {
+    flock($nfp, LOCK_UN);
+    fclose($nfp);
+    receiver_fail(403, 'Replay detected: request nonce already used.');
+}
+$seenNonces[$nonce] = time();
+ftruncate($nfp, 0);
+rewind($nfp);
+fwrite($nfp, (string) json_encode($seenNonces));
+fflush($nfp);
+flock($nfp, LOCK_UN);
+fclose($nfp);
 
 $absTarget = __DIR__ . '/' . $relPath;
 $realRoot  = realpath(__DIR__);

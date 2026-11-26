@@ -64,25 +64,44 @@ $appliedCode = (string) ($appliedCoupon['code'] ?? ($_POST['coupon_code'] ?? '')
             </div>
         </div>
 
-        <form method="post" action="<?= e(url('/checkout/' . rawurlencode($item['slug']))) ?>" style="margin-top:18px;" data-loading-form>
+        <form method="post" action="<?= e(url('/checkout/' . rawurlencode($item['slug']))) ?>" enctype="multipart/form-data" style="margin-top:18px;" data-loading-form>
             <?= csrf_field() ?>
             <input type="hidden" name="coupon_code" id="checkout_coupon_hidden" value="<?= e($appliedCode) ?>">
-            <div class="bx-field">
-                <label for="payment_method"><?= $lang === 'bn' ? 'পেমেন্ট মাধ্যম *' : 'Payment Method *' ?></label>
-                <select class="bx-select" id="payment_method" name="payment_method" required>
-                    <option value="bkash" <?= ($_POST['payment_method'] ?? '') === 'bkash' ? 'selected' : '' ?>>bKash</option>
-                    <option value="nagad" <?= ($_POST['payment_method'] ?? '') === 'nagad' ? 'selected' : '' ?>>Nagad</option>
-                    <option value="rocket" <?= ($_POST['payment_method'] ?? '') === 'rocket' ? 'selected' : '' ?>>Rocket</option>
-                </select>
-            </div>
-            <div class="bx-field">
-                <label for="sender_number"><?= $lang === 'bn' ? 'আপনার প্রেরক নম্বর *' : 'Sender Phone Number *' ?></label>
-                <input class="bx-input" id="sender_number" name="sender_number" required placeholder="01XXXXXXXXX" value="<?= e($_POST['sender_number'] ?? '') ?>">
-            </div>
-            <div class="bx-field">
-                <label for="transaction_id">Transaction ID (TrxID) *</label>
-                <input class="bx-input" id="transaction_id" name="transaction_id" required placeholder="e.g. 9K7A2B1C3D" value="<?= e($_POST['transaction_id'] ?? '') ?>">
-            </div>
+            <?php
+            $gwDriver = payment_gateway_driver();
+            $useAutoGw = $gwDriver->isAutomatic();
+            ?>
+            <?php if ($useAutoGw): ?>
+                <div id="bx-manual-pay-fields" style="<?= $finalAmt <= 0 ? 'display:none;' : '' ?>padding:14px;border-radius:12px;background:var(--bg-alt);border:1px solid var(--border);margin-bottom:14px;">
+                    <strong><?= e($gwDriver->getName()) ?></strong>
+                    <p class="bx-muted" style="margin:6px 0 0;font-size:0.88rem;">
+                        <?= $lang === 'bn' ? 'অর্ডার জমা দেওয়ার পর আপনি নিরাপদ অনলাইন পেমেন্ট পেজে চলে যাবেন।' : 'After submitting, you will be redirected to complete payment securely online.' ?>
+                    </p>
+                </div>
+            <?php else: ?>
+                <div id="bx-manual-pay-fields" style="<?= $finalAmt <= 0 ? 'display:none;' : '' ?>">
+                    <div class="bx-field">
+                        <label for="payment_method"><?= $lang === 'bn' ? 'পেমেন্ট মাধ্যম *' : 'Payment Method *' ?></label>
+                        <select class="bx-select" id="payment_method" name="payment_method" <?= $finalAmt > 0 ? 'required' : '' ?>>
+                            <option value="bkash" <?= ($_POST['payment_method'] ?? '') === 'bkash' ? 'selected' : '' ?>>bKash</option>
+                            <option value="nagad" <?= ($_POST['payment_method'] ?? '') === 'nagad' ? 'selected' : '' ?>>Nagad</option>
+                            <option value="rocket" <?= ($_POST['payment_method'] ?? '') === 'rocket' ? 'selected' : '' ?>>Rocket</option>
+                        </select>
+                    </div>
+                    <div class="bx-field">
+                        <label for="sender_number"><?= $lang === 'bn' ? 'আপনার প্রেরক নম্বর *' : 'Sender Phone Number *' ?></label>
+                        <input class="bx-input" id="sender_number" name="sender_number" <?= $finalAmt > 0 ? 'required' : '' ?> placeholder="01XXXXXXXXX" value="<?= e($_POST['sender_number'] ?? '') ?>">
+                    </div>
+                    <div class="bx-field">
+                        <label for="transaction_id">Transaction ID (TrxID) *</label>
+                        <input class="bx-input" id="transaction_id" name="transaction_id" <?= $finalAmt > 0 ? 'required' : '' ?> placeholder="e.g. 9K7A2B1C3D" value="<?= e($_POST['transaction_id'] ?? '') ?>">
+                    </div>
+                    <div class="bx-field">
+                        <label for="payment_screenshot"><?= $lang === 'bn' ? 'পেমেন্ট স্ক্রিনশট (ঐচ্ছিক — JPG/PNG/WebP, সর্বোচ্চ ৩ MB)' : 'Payment Screenshot (Optional — JPG/PNG/WebP, max 3 MB)' ?></label>
+                        <input class="bx-input" type="file" id="payment_screenshot" name="payment_screenshot" accept="image/jpeg,image/png,image/webp">
+                    </div>
+                </div>
+            <?php endif; ?>
 
             <div class="bx-security-box" style="margin:14px 0;">
                 <?= icon('shield', 'bx-icon-lg') ?>
@@ -103,8 +122,8 @@ $appliedCode = (string) ($appliedCoupon['code'] ?? ($_POST['coupon_code'] ?? '')
                 </span>
             </label>
 
-            <button type="submit" class="bx-btn bx-btn-accent" style="width:100%;" data-loading-label="<?= e($lang === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...') ?>">
-                <?= icon('check') ?> <?= $lang === 'bn' ? 'পেমেন্ট তথ্য জমা দিন' : 'Submit Order for Verification' ?>
+            <button type="submit" id="checkout-submit-btn" class="bx-btn bx-btn-accent" style="width:100%;" data-free-label="<?= e($lang === 'bn' ? 'ফ্রি আনলক করুন (১০০% ছাড়)' : 'Unlock Now (Free with Coupon)') ?>" data-paid-label="<?= e($lang === 'bn' ? 'পেমেন্ট তথ্য জমা দিন' : 'Submit Order for Verification') ?>" data-loading-label="<?= e($lang === 'bn' ? 'জমা হচ্ছে...' : 'Submitting...') ?>">
+                <?= icon('check') ?> <span><?= $finalAmt <= 0 ? ($lang === 'bn' ? 'ফ্রি আনলক করুন (১০০% ছাড়)' : 'Unlock Now (Free with Coupon)') : ($lang === 'bn' ? 'পেমেন্ট তথ্য জমা দিন' : 'Submit Order for Verification') ?></span>
             </button>
         </form>
     </div>

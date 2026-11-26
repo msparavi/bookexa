@@ -15,6 +15,22 @@ $backUrl      = $folderUrl;
 $buyUrl       = url('/checkout/' . rawurlencode($item['slug']));
 $userTheme    = $userTheme ?? '';
 $userZoom     = $userZoom ?? null;
+$tocItems     = [];
+if (!empty($item['toc_json'])) {
+    $decoded = json_decode((string) $item['toc_json'], true);
+    if (is_array($decoded)) {
+        foreach ($decoded as $te) {
+            $tp = (int) ($te['page'] ?? 0);
+            if ($tp >= 1 && ($maxPages <= 0 || $tp <= $maxPages)) {
+                $tocItems[] = $te;
+            }
+        }
+    }
+}
+$bookmarksUrl = url('/api/reader-bookmarks');
+$searchBookUrl = ($readerMode === 'pages' && $streamToken !== '')
+    ? url('/api/reader-search?item=' . (int) $item['id'] . '&token=' . rawurlencode($streamToken))
+    : '';
 ?>
 <!DOCTYPE html>
 <html lang="<?= e($lang) ?>" data-reader-theme="<?= e($userTheme !== '' ? $userTheme : 'dark') ?>" class="bx-reader-html">
@@ -47,9 +63,12 @@ $userZoom     = $userZoom ?? null;
         </div>
 
         <div class="bx-reader-top-actions">
-            <button type="button" class="bx-rbtn" id="btn-thumbs" title="<?= e($lang === 'bn' ? 'পৃষ্ঠা তালিকা' : 'Thumbnails & Pages') ?>" aria-label="<?= e($lang === 'bn' ? 'পৃষ্ঠা তালিকা' : 'Thumbnails & Pages') ?>">
+            <button type="button" class="bx-rbtn" id="btn-bookmark-quick" title="<?= e($lang === 'bn' ? 'পৃষ্ঠা বুকমার্ক করুন' : 'Bookmark Page') ?>" aria-label="<?= e($lang === 'bn' ? 'পৃষ্ঠা বুকমার্ক করুন' : 'Bookmark Page') ?>">
+                <?= icon('heart', 'bx-icon') ?>
+            </button>
+            <button type="button" class="bx-rbtn" id="btn-thumbs" title="<?= e($lang === 'bn' ? 'পৃষ্ঠা, সূচিপত্র, বুকমার্ক ও খুঁজুন' : 'Pages, TOC, Bookmarks & Search') ?>" aria-label="<?= e($lang === 'bn' ? 'রিডার টুলস' : 'Reader Drawer') ?>">
                 <?= icon('layers', 'bx-icon') ?>
-                <span class="bx-hide-sm"><?= e($lang === 'bn' ? 'পৃষ্ঠা' : 'Pages') ?></span>
+                <span class="bx-hide-sm"><?= e($lang === 'bn' ? 'সূচি ও টুলস' : 'Tools') ?></span>
             </button>
             <button type="button" class="bx-rbtn" id="btn-open-settings" title="<?= e($lang === 'bn' ? 'রিডার সেটিংস ও থিম' : 'Reader Settings') ?>" aria-label="<?= e($lang === 'bn' ? 'রিডার সেটিংস ও থিম' : 'Reader Settings') ?>">
                 <?= icon('settings', 'bx-icon') ?>
@@ -74,13 +93,38 @@ $userZoom     = $userZoom ?? null;
     <?php endif; ?>
 
     <div class="bx-reader-workspace">
-        <!-- Thumbnails Sidebar (Desktop) / Bottom Sheet (Mobile & Tablet) -->
-        <aside class="bx-thumb-sidebar" id="thumb-sidebar" aria-label="Page Thumbnails">
+        <!-- Reader Drawer: Pages / TOC / Bookmarks / Search Inside Book -->
+        <aside class="bx-thumb-sidebar" id="thumb-sidebar" aria-label="Reader Drawer">
             <div class="bx-thumb-head">
-                <strong><?= $lang === 'bn' ? 'পৃষ্ঠাসমূহ' : 'Pages' ?></strong>
-                <button type="button" class="bx-rbtn" id="btn-thumbs-close" title="<?= e($lang === 'bn' ? 'বন্ধ করুন' : 'Close Thumbnails') ?>" aria-label="<?= e($lang === 'bn' ? 'বন্ধ করুন' : 'Close Thumbnails') ?>"><?= icon('close', 'bx-icon') ?></button>
+                <strong><?= $lang === 'bn' ? 'রিডার টুলস' : 'Reader Drawer' ?></strong>
+                <button type="button" class="bx-rbtn" id="btn-thumbs-close" title="<?= e($lang === 'bn' ? 'বন্ধ করুন' : 'Close') ?>" aria-label="<?= e($lang === 'bn' ? 'বন্ধ করুন' : 'Close Drawer') ?>"><?= icon('close', 'bx-icon') ?></button>
             </div>
-            <div class="bx-thumb-list" id="thumb-list"></div>
+            <div class="bx-drawer-tabs" role="tablist">
+                <button type="button" class="bx-drawer-tab active" data-drawer-tab="pages" role="tab"><?= $lang === 'bn' ? 'পৃষ্ঠা' : 'Pages' ?></button>
+                <button type="button" class="bx-drawer-tab" data-drawer-tab="toc" role="tab"><?= $lang === 'bn' ? 'সূচিপত্র' : 'TOC' ?></button>
+                <button type="button" class="bx-drawer-tab" data-drawer-tab="bookmarks" role="tab"><?= $lang === 'bn' ? 'বুকমার্ক' : 'Saved' ?></button>
+                <button type="button" class="bx-drawer-tab" data-drawer-tab="search" role="tab"><?= $lang === 'bn' ? 'খুঁজুন' : 'Search' ?></button>
+            </div>
+            <div class="bx-drawer-pane active" id="pane-pages">
+                <div class="bx-thumb-list" id="thumb-list" style="padding:0;"></div>
+            </div>
+            <div class="bx-drawer-pane" id="pane-toc">
+                <div id="toc-list" style="display:flex;flex-direction:column;gap:6px;"></div>
+            </div>
+            <div class="bx-drawer-pane" id="pane-bookmarks">
+                <form id="bm-add-form" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+                    <input type="text" id="bm-label-input" maxlength="120" class="bx-jump-input" style="flex:1 1 120px;width:auto;text-align:left;padding:6px 10px;font-size:0.86rem;" placeholder="<?= e($lang === 'bn' ? 'বুকমার্ক নাম (ঐচ্ছিক)' : 'Bookmark label...') ?>">
+                    <button type="submit" class="bx-rbtn bx-rbtn-accent" style="min-height:40px;padding:4px 10px;"><?= $lang === 'bn' ? 'সংরক্ষণ' : 'Add' ?></button>
+                </form>
+                <div id="bm-list" style="display:flex;flex-direction:column;gap:8px;"></div>
+            </div>
+            <div class="bx-drawer-pane" id="pane-search">
+                <form id="rsearch-form" style="display:flex;gap:6px;margin-bottom:4px;">
+                    <input type="search" id="rsearch-input" minlength="2" class="bx-jump-input" style="flex:1;width:auto;text-align:left;padding:6px 10px;font-size:0.86rem;" placeholder="<?= e($lang === 'bn' ? 'বইয়ের ভেতর খুঁজুন...' : 'Search inside book...') ?>">
+                    <button type="submit" class="bx-rbtn bx-rbtn-accent" style="min-height:40px;padding:4px 10px;"><?= icon('search', 'bx-icon') ?></button>
+                </form>
+                <div id="rsearch-results" style="display:flex;flex-direction:column;gap:8px;user-select:none;"></div>
+            </div>
         </aside>
 
         <!-- Main Touch/Canvas Stage -->
@@ -169,6 +213,12 @@ $userZoom     = $userZoom ?? null;
                 <label class="bx-rsheet-label"><?= e($lang === 'bn' ? 'পৃষ্ঠা লেআউট (বড় স্ক্রিন)' : 'Spread Layout (Wide Screens)') ?></label>
                 <button type="button" class="bx-rbtn" id="sheet-toggle-spread"><?= icon('double-page', 'bx-icon') ?> <span><?= e($lang === 'bn' ? '১ পৃষ্ঠা / ২ পৃষ্ঠা বদলান' : 'Toggle Single / Double Page') ?></span></button>
             </div>
+            <?php if ($readerMode === 'pages'): ?>
+            <div class="bx-rsheet-section">
+                <label class="bx-rsheet-label"><?= e($lang === 'bn' ? 'মোবাইল ডাটা সাশ্রয়' : 'Mobile Image Mode') ?></label>
+                <button type="button" class="bx-rbtn" id="sheet-toggle-lightweight" aria-pressed="true"><?= icon('sparkles', 'bx-icon') ?> <span id="sheet-lw-label"><?= e($lang === 'bn' ? 'ফোনে হালকা ছবি (১০০০px): চালু' : 'Lightweight Phone Size (1000px): ON') ?></span></button>
+            </div>
+            <?php endif; ?>
             <p class="bx-rsheet-hint">
                 <?= e($lang === 'bn' ? 'টিপস: ডাবল-ট্যাপ বা পিঞ্চ করে জুম করুন, ডানে-বামে সোয়াইপ করে পৃষ্ঠা বদলান, মাঝে ট্যাপ করে বার লুকান।' : 'Tip: Pinch or double-tap to zoom, swipe left/right to turn pages, tap center to hide bars.') ?>
             </p>
@@ -200,7 +250,10 @@ $userZoom     = $userZoom ?? null;
     'streamUrl'     => $streamUrl,
     'heartbeatUrl'  => $heartbeatUrl,
     'progressUrl'   => $progressUrl,
+    'bookmarksUrl'  => $bookmarksUrl,
+    'searchUrl'     => $searchBookUrl,
     'secEventUrl'   => $secEventUrl,
+    'tocItems'      => $tocItems,
     'csrfToken'     => csrf_token(),
     'itemId'        => (int) $item['id'],
     'initialPage'   => (int) $savedPage,
@@ -209,12 +262,17 @@ $userZoom     = $userZoom ?? null;
     'backUrl'       => $backUrl,
     'isSample'      => (bool) $isSample,
     'maxPages'      => (int) $maxPages,
+    'lightweightMobileDefault' => site_setting('reader_mobile_lightweight', '1') === '1',
+    'lightweightOnLabel'  => $lang === 'bn' ? 'ফোনে হালকা ছবি (১০০০px): চালু' : 'Lightweight Phone Size (1000px): ON',
+    'lightweightOffLabel' => $lang === 'bn' ? 'ফোনে হালকা ছবি (১০০০px): বন্ধ' : 'Lightweight Phone Size (1000px): OFF',
     'watermarkText' => $watermarkText,
     'kickedMessage' => $lang === 'bn' ? 'অন্য ডিভাইস বা ট্যাবে আপনার অ্যাকাউন্ট দিয়ে রিডার চালু হয়েছে। নিরাপত্তার জন্য এই সেশনটি বন্ধ করা হয়েছে।' : 'Another device or tab started reading with this account. This session has been closed.',
     'blurMessage'   => $lang === 'bn' ? 'সুরক্ষার জন্য পাতাটি আড়াল করা হয়েছে। পড়া চালিয়ে যেতে ক্লিক করুন।' : 'Content hidden for protection. Click to resume reading.',
     'resizeMessage' => $lang === 'bn' ? 'সন্দেহজনক উইন্ডো পরিবর্তন শনাক্ত হয়েছে। পড়া চালিয়ে যেতে ক্লিক করুন।' : 'Suspicious window resize detected. Click to resume reading.',
     'loadErrorMsg'  => $lang === 'bn' ? 'পৃষ্ঠা লোড করা যায়নি।' : 'Could not load document pages.',
-    'unavailableMsg'=> $lang === 'bn' ? 'এই বইয়ের সুরক্ষিত পৃষ্ঠাগুলো এখনও প্রস্তুত হয়নি। অনুগ্রহ করে অ্যাডমিনের সাথে যোগাযোগ করুন।' : 'Protected pages for this book are still being prepared. Please check back shortly.',
+    'unavailableMsg'=> !empty($unavailableCustomMsg)
+        ? (string) $unavailableCustomMsg
+        : ($lang === 'bn' ? 'এই বইয়ের সুরক্ষিত পৃষ্ঠাগুলো এখনও প্রস্তুত হয়নি। অনুগ্রহ করে অ্যাডমিনের সাথে যোগাযোগ করুন।' : 'Protected pages for this book are still being prepared. Please check back shortly.'),
     'retryLabel'    => $lang === 'bn' ? 'আবার চেষ্টা করুন' : 'Retry',
     'reloadLabel'   => $lang === 'bn' ? 'রিডার রিলোড করুন' : 'Reload Session',
 ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>

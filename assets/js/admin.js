@@ -709,4 +709,49 @@
         if (window.bxToast) window.bxToast((data && data.message) || 'Pull finished', data && data.ok ? 'success' : 'danger');
         if (data && data.ok) setTimeout(() => window.location.reload(), 550);
     });
+
+    // 12. Bulk CSV Import Batch Runner
+    const btnCsvBatch = document.getElementById('btn-csv-batch-import');
+    if (btnCsvBatch) {
+        btnCsvBatch.addEventListener('click', async () => {
+            const endpoint = btnCsvBatch.getAttribute('data-endpoint');
+            const total = parseInt(btnCsvBatch.getAttribute('data-total') || '0', 10) || 1;
+            const progBox = document.getElementById('csv-batch-progress');
+            const progStat = document.getElementById('csv-batch-status');
+            const progPct = document.getElementById('csv-batch-pct');
+            const progFill = document.getElementById('csv-batch-fill');
+            if (progBox) progBox.hidden = false;
+            btnCsvBatch.disabled = true;
+            let importedTotal = 0;
+            try {
+                while (true) {
+                    const res = await fetch(endpoint, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: new URLSearchParams({ _csrf: csrfToken, limit: '15' })
+                    });
+                    const data = await res.json();
+                    if (!data || !data.ok) {
+                        if (window.bxToast) window.bxToast((data && data.message) || 'CSV batch import failed', 'danger');
+                        break;
+                    }
+                    importedTotal += Number(data.imported || 0);
+                    const rem = Number(data.remaining || 0);
+                    const pct = rem === 0 ? 100 : Math.min(99, Math.round((importedTotal / total) * 100));
+                    if (progPct) progPct.textContent = pct + '%';
+                    if (progFill) progFill.style.width = pct + '%';
+                    if (progStat) progStat.textContent = `Imported ${importedTotal} of ${total} valid row(s)...`;
+                    if (rem <= 0 || Number(data.processed || 0) === 0) {
+                        if (window.bxToast) window.bxToast(data.message || `Imported ${importedTotal} book(s)!`, 'success');
+                        setTimeout(() => { window.location.href = (document.querySelector('meta[name="bx-base"]')?.content || '') + '/admin/pdfs'; }, 700);
+                        break;
+                    }
+                }
+            } catch (err) {
+                if (window.bxToast) window.bxToast('Batch import failed.', 'danger');
+            } finally {
+                btnCsvBatch.disabled = false;
+            }
+        });
+    }
 })();

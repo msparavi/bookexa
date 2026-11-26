@@ -1,29 +1,64 @@
 <?php
 declare(strict_types=1);
 
+$pubRaw = published_window_sql();
+$pubF   = published_window_sql('f');
+$pubI   = published_window_sql('i');
+
 $banners = db_all(
-    'SELECT * FROM banners
+    "SELECT * FROM banners
      WHERE is_active = 1
-       AND (starts_at IS NULL OR starts_at <= NOW())
-       AND (ends_at IS NULL OR ends_at >= NOW())
-     ORDER BY sort_order ASC, id DESC'
+       AND (COALESCE(publish_at, starts_at) IS NULL OR COALESCE(publish_at, starts_at) <= NOW())
+       AND (COALESCE(unpublish_at, ends_at) IS NULL OR COALESCE(unpublish_at, ends_at) > NOW())
+     ORDER BY sort_order ASC, id DESC"
 );
 
-$featuredFolders = db_all(
-    'SELECT f.*,
-        (SELECT COUNT(*) FROM folders c WHERE c.parent_id = f.id AND c.is_active = 1) AS subfolder_count,
-        (SELECT COUNT(*) FROM items i WHERE i.folder_id = f.id AND i.is_active = 1) AS item_count
-     FROM folders f
-     WHERE f.parent_id IS NULL AND f.is_active = 1
-     ORDER BY f.sort_order ASC, f.id ASC
-     LIMIT 6'
-);
+$folderTree = get_cached_folder_tree();
+$featuredFolders = [];
+foreach (array_slice($folderTree['children']['root'] ?? [], 0, 6) as $rootFid) {
+    if (isset($folderTree['byId'][(string) $rootFid])) {
+        $featuredFolders[] = $folderTree['byId'][(string) $rootFid];
+    }
+}
 
 $newestItems = db_all(
-    'SELECT * FROM items WHERE is_active = 1 ORDER BY id DESC LIMIT 8'
+    "SELECT * FROM items WHERE is_active = 1 AND {$pubRaw} ORDER BY id DESC LIMIT 8"
 );
-$totalFoldersStat = (int) (db_one('SELECT COUNT(*) AS c FROM folders WHERE is_active = 1')['c'] ?? 0);
-$totalItemsStat   = (int) (db_one('SELECT COUNT(*) AS c FROM items WHERE is_active = 1')['c'] ?? 0);
+$popularItems = db_all(
+    "SELECT *, (read_count + view_count) AS pop_score FROM items WHERE is_active = 1 AND {$pubRaw} ORDER BY pop_score DESC, is_featured DESC, id DESC LIMIT 8"
+);
+$freeItems = db_all(
+    "SELECT * FROM items WHERE is_active = 1 AND {$pubRaw} AND (is_free = 1 OR price <= 0) ORDER BY is_featured DESC, id DESC LIMIT 8"
+);
+
+$homeUser = current_user();
+$continueReading = [];
+$recentlyViewed  = [];
+if ($homeUser) {
+    $hUid = (int) $homeUser['id'];
+    $continueReading = db_all(
+        "SELECT i.*, rp.last_page, rp.total_pages AS prog_total_pages, rp.updated_at AS read_at
+         FROM reading_progress rp
+         JOIN items i ON i.id = rp.item_id
+         WHERE rp.user_id = ? AND i.is_active = 1 AND {$pubI}
+         ORDER BY rp.updated_at DESC
+         LIMIT 4",
+        [$hUid]
+    );
+    $recentlyViewed = db_all(
+        "SELECT i.*
+         FROM recently_viewed rv
+         JOIN items i ON i.id = rv.item_id
+         WHERE rv.user_id = ? AND i.is_active = 1 AND {$pubI}
+         ORDER BY rv.viewed_at DESC
+         LIMIT 8",
+        [$hUid]
+    );
+}
+
+$totalFoldersStat = (int) ($folderTree['total_active'] ?? 0);
+$totalItemsStat   = (int) (db_one("SELECT COUNT(*) AS c FROM items WHERE is_active = 1 AND {$pubRaw}")['c'] ?? 0);
+$lang = current_lang();
 ?>
 
 <section class="bx-hero-wrap">
@@ -123,6 +158,28 @@ $totalItemsStat   = (int) (db_one('SELECT COUNT(*) AS c FROM items WHERE is_acti
     </div>
 </section>
 
+<!-- Continue Reading (Logged-in users with progress) -->
+<?php if (!empty($continueReading)): ?>
+<section class="bx-section">
+    <div class="container">
+        <div class="bx-section-head">
+            <div>
+                <h2 class="bx-h2"><?= $lang === 'bn' ? 'যেখান থেকে পড়া শেষ করেছিলেন' : 'Continue Reading' ?></h2>
+                <p><?= $lang === 'bn' ? 'আপনার সর্বশেষ পড়া পৃষ্ঠা থেকে আবার শুরু করুন।' : 'Jump right back in where you left off.' ?></p>
+            </div>
+            <a href="<?= e(url('/library')) ?>" class="bx-btn bx-btn-outline bx-btn-sm">
+                <?= e(t('nav_library')) ?> <?= icon('chevron-right') ?>
+            </a>
+        </div>
+        <div class="bx-book-grid" data-stagger>
+            <?php foreach ($continueReading as $cr): ?>
+                <?= render_book_card($cr) ?>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</section>
+<?php endif; ?>
+
 <!-- Featured Folders -->
 <section class="bx-section">
     <div class="container">
@@ -144,15 +201,15 @@ $totalItemsStat   = (int) (db_one('SELECT COUNT(*) AS c FROM items WHERE is_acti
     </div>
 </section>
 
-<!-- Newest PDFs -->
+<!-- Newest PDFs (Recently Added) -->
 <section class="bx-section">
     <div class="container">
         <div class="bx-section-head">
             <div>
-                <h2 class="bx-h2"><?= e(t('newest_pdfs')) ?></h2>
+                <h2 class="bx-h2"><?= $lang === 'bn' ? 'সদ্য যুক্ত বই' : 'Recently Added' ?></h2>
                 <p><?= e(t('newest_pdfs_sub')) ?></p>
             </div>
-            <a href="<?= e(url('/search')) ?>" class="bx-btn bx-btn-outline bx-btn-sm">
+            <a href="<?= e(url('/search?sort=newest')) ?>" class="bx-btn bx-btn-outline bx-btn-sm">
                 <?= e(t('view_all')) ?> <?= icon('chevron-right') ?>
             </a>
         </div>
@@ -164,6 +221,81 @@ $totalItemsStat   = (int) (db_one('SELECT COUNT(*) AS c FROM items WHERE is_acti
         </div>
     </div>
 </section>
+
+<!-- Popular PDFs -->
+<?php if (!empty($popularItems)): ?>
+<section class="bx-section">
+    <div class="container">
+        <div class="bx-section-head">
+            <div>
+                <h2 class="bx-h2"><?= $lang === 'bn' ? 'জনপ্রিয় বই' : 'Popular Books' ?></h2>
+                <p><?= $lang === 'bn' ? 'সবচেয়ে বেশি পঠিত ও প্রশংসিত পিডিএফ।' : 'Most read and viewed digital books on Bookexa.' ?></p>
+            </div>
+            <a href="<?= e(url('/search?sort=popular')) ?>" class="bx-btn bx-btn-outline bx-btn-sm">
+                <?= e(t('view_all')) ?> <?= icon('chevron-right') ?>
+            </a>
+        </div>
+        <div class="bx-book-grid" data-stagger>
+            <?php foreach ($popularItems as $item): ?>
+                <?= render_book_card($item) ?>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</section>
+<?php endif; ?>
+
+<!-- Free to Read -->
+<?php if (!empty($freeItems)): ?>
+<section class="bx-section">
+    <div class="container">
+        <div class="bx-section-head">
+            <div>
+                <h2 class="bx-h2"><?= $lang === 'bn' ? 'বিনামূল্যে পড়ুন' : 'Free to Read' ?></h2>
+                <p><?= $lang === 'bn' ? 'কোনো পেমেন্ট ছাড়াই সরাসরি পড়তে পারবেন।' : 'Open and read immediately at zero cost.' ?></p>
+            </div>
+            <a href="<?= e(url('/search?price_type=free')) ?>" class="bx-btn bx-btn-outline bx-btn-sm">
+                <?= e(t('view_all')) ?> <?= icon('chevron-right') ?>
+            </a>
+        </div>
+        <div class="bx-book-grid" data-stagger>
+            <?php foreach ($freeItems as $item): ?>
+                <?= render_book_card($item) ?>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</section>
+<?php endif; ?>
+
+<!-- Recently Viewed (Per User in MySQL, or localStorage for guests) -->
+<?php if (!empty($recentlyViewed)): ?>
+<section class="bx-section">
+    <div class="container">
+        <div class="bx-section-head">
+            <div>
+                <h2 class="bx-h2"><?= $lang === 'bn' ? 'সম্প্রতি দেখা বই' : 'Recently Viewed' ?></h2>
+                <p><?= $lang === 'bn' ? 'আপনার সাম্প্রতিক পরিদর্শিত বইসমূহ।' : 'PDFs you checked out recently.' ?></p>
+            </div>
+        </div>
+        <div class="bx-book-grid" data-stagger>
+            <?php foreach ($recentlyViewed as $item): ?>
+                <?= render_book_card($item) ?>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</section>
+<?php elseif (!$homeUser): ?>
+<section class="bx-section" id="bx-guest-recent-sec" hidden>
+    <div class="container">
+        <div class="bx-section-head">
+            <div>
+                <h2 class="bx-h2"><?= $lang === 'bn' ? 'সম্প্রতি দেখা বই' : 'Recently Viewed' ?></h2>
+                <p><?= $lang === 'bn' ? 'আপনার সাম্প্রতিক পরিদর্শিত বইসমূহ।' : 'PDFs you checked out recently.' ?></p>
+            </div>
+        </div>
+        <div class="bx-book-grid" id="bx-guest-recent-grid"></div>
+    </div>
+</section>
+<?php endif; ?>
 
 <!-- Short About Bookexa Section with Animated Counters -->
 <section class="bx-section bx-reveal">

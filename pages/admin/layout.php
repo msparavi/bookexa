@@ -8,26 +8,25 @@ $faviconHref = $faviconSetting !== '' ? asset($faviconSetting) : asset('assets/i
 $flashes = get_flashes();
 
 $navItems = [
-    ['key' => 'dashboard', 'url' => '/admin',          'bn' => 'ড্যাশবোর্ড',      'en' => 'Dashboard',     'icon' => '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>'],
-    ['key' => 'banners',   'url' => '/admin/banners',  'bn' => 'ব্যানার',          'en' => 'Banners',       'icon' => '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 15l5-5 4 4 3-3 8 6"/>'],
-    ['key' => 'folders',   'url' => '/admin/folders',  'bn' => 'ফোল্ডার ট্রি',     'en' => 'Folders',       'icon' => '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'],
-    ['key' => 'pdfs',      'url' => '/admin/pdfs',     'bn' => 'PDF ম্যানেজার',   'en' => 'PDF Manager',   'icon' => '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'],
-    ['key' => 'orders',    'url' => '/admin/orders',   'bn' => 'অর্ডারসমূহ',      'en' => 'Orders',        'icon' => '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/>', 'badge' => $pendingOrdersCount ?? 0],
-    ['key' => 'coupons',   'url' => '/admin/coupons',  'bn' => 'কুপন কোড',       'en' => 'Coupons',       'icon' => '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>'],
-    ['key' => 'reviews',   'url' => '/admin/reviews',  'bn' => 'রিভিউ মডারেশন',   'en' => 'Reviews',       'icon' => '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>'],
-    ['key' => 'reports',   'url' => '/admin/reports',  'bn' => 'রিপোর্ট ও CSV',   'en' => 'Reports',       'icon' => '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'],
-    ['key' => 'media',     'url' => '/admin/media',    'bn' => 'মিডিয়া ও CDN',    'en' => 'Media & CDN',   'icon' => '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'],
-    ['key' => 'users',     'url' => '/admin/users',    'bn' => 'ব্যবহারকারী',      'en' => 'Users',         'icon' => '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'],
-    ['key' => 'logs',      'url' => '/admin/logs',     'bn' => 'সিকিউরিটি লগ',    'en' => 'Security Logs', 'icon' => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'],
-    ['key' => 'settings',  'url' => '/admin/settings', 'bn' => 'সেটিংস',         'en' => 'Settings',      'icon' => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.77 1 1.51 1H21a2 2 0 0 1 0 4h-.09c-.74 0-1.25.4-1.51 1z"/>'],
+    ['key' => 'dashboard',     'url' => '/admin',               'bn' => 'ড্যাশবোর্ড',         'en' => 'Dashboard',       'icon' => '<rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/>'],
+    ['key' => 'banners',       'url' => '/admin/banners',       'bn' => 'ব্যানার',             'en' => 'Banners',         'icon' => '<rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 15l5-5 4 4 3-3 8 6"/>'],
+    ['key' => 'folders',       'url' => '/admin/folders',       'bn' => 'ফোল্ডার ট্রি',        'en' => 'Folders',         'icon' => '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>'],
+    ['key' => 'pdfs',          'url' => '/admin/pdfs',          'bn' => 'PDF ম্যানেজার',      'en' => 'PDF Manager',     'icon' => '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>'],
+    ['key' => 'import-csv',    'url' => '/admin/import-csv',    'bn' => 'CSV বাল্ক ইমপোর্ট',   'en' => 'CSV Import',      'icon' => '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="9 15 12 12 15 15"/>'],
+    ['key' => 'prepare-queue', 'url' => '/admin/prepare-queue', 'bn' => 'প্রস্তুত কিউ (সব)',   'en' => 'Prepare Queue',   'icon' => '<polygon points="5 3 19 12 5 21 5 3"/>'],
+    ['key' => 'orders',        'url' => '/admin/orders',        'bn' => 'অর্ডারসমূহ',         'en' => 'Orders',          'icon' => '<rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/>', 'badge' => $pendingOrdersCount ?? 0],
+    ['key' => 'inbox',         'url' => '/admin/inbox',         'bn' => 'সাপোর্ট ইনবক্স',     'en' => 'Support Inbox',   'icon' => '<path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>', 'badge' => $newInboxCount ?? 0],
+    ['key' => 'coupons',       'url' => '/admin/coupons',       'bn' => 'কুপন কোড',          'en' => 'Coupons',         'icon' => '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>'],
+    ['key' => 'reviews',       'url' => '/admin/reviews',       'bn' => 'রিভিউ মডারেশন',      'en' => 'Reviews',         'icon' => '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>'],
+    ['key' => 'reports',       'url' => '/admin/reports',       'bn' => 'অ্যানালিটিক্স ও CSV', 'en' => 'Analytics & CSV', 'icon' => '<line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>'],
+    ['key' => 'media',         'url' => '/admin/media',         'bn' => 'মিডিয়া ও CDN',       'en' => 'Media & CDN',     'icon' => '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>'],
+    ['key' => 'users',         'url' => '/admin/users',         'bn' => 'ব্যবহারকারী',         'en' => 'Users',           'icon' => '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'],
+    ['key' => 'logs',          'url' => '/admin/logs',          'bn' => 'সিকিউরিটি লগ',       'en' => 'Security Logs',   'icon' => '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'],
+    ['key' => 'system-health', 'url' => '/admin/system-health', 'bn' => 'সিস্টেম হেলথ',       'en' => 'System Health',   'icon' => '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>'],
+    ['key' => 'settings',      'url' => '/admin/settings',      'bn' => 'সেটিংস',            'en' => 'Settings',        'icon' => '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9c.26.6.77 1 1.51 1H21a2 2 0 0 1 0 4h-.09c-.74 0-1.25.4-1.51 1z"/>'],
+    ['key' => 'admins',        'url' => '/admin/admins',        'bn' => 'অ্যাডমিন ও লগ',      'en' => 'Admins & Audit',  'icon' => '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/>'],
 ];
-
-if (($admin['role'] ?? '') === 'superadmin') {
-    $navItems[] = [
-        'key' => 'admins', 'url' => '/admin/admins', 'bn' => 'অ্যাডমিন ও লগ', 'en' => 'Admins & Audit',
-        'icon' => '<path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7z"/>',
-    ];
-}
+$navItems = array_values(array_filter($navItems, static fn(array $it): bool => admin_can($admin, $it['key'])));
 
 $activeTitle = 'Admin';
 foreach ($navItems as $ni) {
@@ -117,10 +116,12 @@ $langSwitchHref = strtok($_SERVER['REQUEST_URI'] ?? '', '?') . '?' . http_build_
                 <h1><?= e($activeTitle) ?></h1>
             </div>
 
+            <?php if (admin_can($admin, 'pdfs')): ?>
             <form class="bx-admin-search" id="bx-admin-search-form" action="<?= e(url('/admin/pdfs')) ?>" method="get">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--text-muted);flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input type="search" id="bx-admin-global-search" name="q" value="<?= e((string) ($_GET['q'] ?? '')) ?>" placeholder="<?= $lang === 'bn' ? 'PDF খুঁজুন... (Ctrl+K)' : 'Search PDFs... (Ctrl+K)' ?>">
             </form>
+            <?php endif; ?>
 
             <div class="bx-admin-topbar-actions">
                 <button type="button" class="bx-btn bx-btn-ghost bx-mobile-search-btn" data-topbar-search-toggle aria-label="Search" style="padding:8px;">
@@ -147,12 +148,14 @@ $langSwitchHref = strtok($_SERVER['REQUEST_URI'] ?? '', '?') . '?' . http_build_
                             <span class="bx-status-pill st-active" style="margin-top:6px;"><?= e($admin['role']) ?></span>
                         </div>
                         <a href="<?= e(url('/admin/account-security')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;padding:7px 10px;font-size:0.86rem;">
-                            <?= $lang === 'bn' ? 'পাসওয়ার্ড ও নিরাপত্তা' : 'Account Security' ?>
+                            <?= $lang === 'bn' ? 'পাসওয়ার্ড ও ২এফএ নিরাপত্তা' : 'Security & 2FA' ?>
                         </a>
-                        <a href="<?= e(url('/admin/settings')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;padding:7px 10px;font-size:0.86rem;">
-                            <?= $lang === 'bn' ? 'সাইট সেটিংস' : 'Site Settings' ?>
-                        </a>
-                        <?php if ($admin['role'] === 'superadmin'): ?>
+                        <?php if (admin_can($admin, 'settings')): ?>
+                            <a href="<?= e(url('/admin/settings')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;padding:7px 10px;font-size:0.86rem;">
+                                <?= $lang === 'bn' ? 'সাইট সেটিংস' : 'Site Settings' ?>
+                            </a>
+                        <?php endif; ?>
+                        <?php if (admin_can($admin, 'admins')): ?>
                             <a href="<?= e(url('/admin/admins')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;padding:7px 10px;font-size:0.86rem;">
                                 <?= $lang === 'bn' ? 'অ্যাডমিন অ্যাকাউন্ট' : 'Admin Accounts' ?>
                             </a>

@@ -19,7 +19,7 @@ function bookexa_folder_color_pair(string $slug, string $accent): array
     return [$accent !== '' ? $accent : '#232766', '#0F766E'];
 }
 
-function render_folder_card(array $folder, string $href): string
+function render_folder_card(array $folder, string $href, array $options = []): string
 {
     [$accent1, $accent2] = bookexa_folder_color_pair((string) ($folder['slug'] ?? ''), (string) ($folder['accent_color'] ?? ''));
     $accent  = e($accent1);
@@ -27,6 +27,8 @@ function render_folder_card(array $folder, string $href): string
     $thumb = !empty($folder['thumbnail']) ? asset($folder['thumbnail']) : asset('uploads/folders/academic.svg');
     $title = bi($folder, 'name');
     $desc  = bi($folder, 'description');
+    $hlQ   = (string) ($options['highlightQuery'] ?? '');
+    $titleHtml = $hlQ !== '' ? highlight_search_text($title, $hlQ) : e($title);
     $subCount = (int) ($folder['subfolder_count'] ?? 0);
     $itemCount = (int) ($folder['item_count'] ?? 0);
 
@@ -38,9 +40,9 @@ function render_folder_card(array $folder, string $href): string
                 <img src="<?= e($thumb) ?>" alt="<?= e($title) ?>" width="480" height="300" loading="lazy" decoding="async">
             </div>
             <div class="bx-folder-face">
-                <h3 class="bx-folder-title"><?= e($title) ?></h3>
+                <h3 class="bx-folder-title"><?= $titleHtml ?></h3>
                 <?php if ($desc !== ''): ?>
-                    <p class="bx-folder-desc"><?= e($desc) ?></p>
+                    <p class="bx-folder-desc"><?= $hlQ !== '' ? highlight_search_text($desc, $hlQ) : e($desc) ?></p>
                 <?php endif; ?>
                 <div class="bx-folder-meta">
                     <span><?= icon('folder') ?> <?= e(num_localize($subCount)) ?> <?= e(t('folders_count')) ?></span>
@@ -53,12 +55,15 @@ function render_folder_card(array $folder, string $href): string
     return ob_get_clean();
 }
 
-function render_book_card(array $item): string
+function render_book_card(array $item, array $options = []): string
 {
     $isFree = (bool) $item['is_free'] || (float) $item['price'] <= 0;
     $cover = !empty($item['cover']) ? asset($item['cover']) : asset('uploads/covers/cover-bangla.svg');
     $title = bi($item, 'title');
     $author = bi($item, 'author');
+    $hlQ = (string) ($options['highlightQuery'] ?? '');
+    $titleHtml = $hlQ !== '' ? highlight_search_text($title, $hlQ) : e($title);
+    $authorHtml = $hlQ !== '' ? highlight_search_text($author, $hlQ) : e($author);
     $itemId = (int) $item['id'];
     $detailUrl = url('/book/' . rawurlencode($item['slug']));
     $user = current_user();
@@ -83,11 +88,11 @@ function render_book_card(array $item): string
                     aria-label="<?= e($wishLabel) ?>"><?= icon('heart') ?></button>
             <div class="bx-book-info">
                 <a href="<?= e($detailUrl) ?>">
-                    <h3 class="bx-book-title"><?= e($title) ?></h3>
+                    <h3 class="bx-book-title"><?= $titleHtml ?></h3>
                 </a>
                 <?php if ($author !== '' || $ratingInfo['count'] > 0): ?>
                     <p class="bx-book-author">
-                        <?= e($author) ?>
+                        <?= $authorHtml ?>
                         <?php if ($ratingInfo['count'] > 0): ?>
                             <span class="bx-card-rating">★ <?= e(num_localize((string) $ratingInfo['avg'])) ?></span>
                         <?php endif; ?>

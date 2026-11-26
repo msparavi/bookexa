@@ -31,8 +31,20 @@ $related = $item['folder_id']
 $readUrl   = url('/reader/' . rawurlencode($item['slug']));
 $sampleUrl = url('/reader/' . rawurlencode($item['slug']) . '?sample=1');
 $buyUrl    = url('/checkout/' . rawurlencode($item['slug']));
+
+// Track item view popularity & per-user recently viewed (guests tracked via localStorage)
+try {
+    db_exec('UPDATE items SET view_count = view_count + 1 WHERE id = ?', [$itemId]);
+    if ($user) {
+        db_exec(
+            'INSERT INTO recently_viewed (user_id, item_id) VALUES (?, ?) ON DUPLICATE KEY UPDATE viewed_at = NOW()',
+            [(int) $user['id'], $itemId]
+        );
+    }
+} catch (Throwable $e) {
+}
 ?>
-<div class="container" style="padding-top:20px;">
+<div class="container" style="padding-top:20px;" data-recent-item="<?= $itemId ?>">
     <nav class="bx-breadcrumb" aria-label="Breadcrumb">
         <a href="<?= e(url('/')) ?>"><?= e(t('nav_home')) ?></a>
         <?= icon('chevron-right') ?>

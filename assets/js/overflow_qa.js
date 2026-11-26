@@ -35,15 +35,20 @@
             '/admin/banners',
             '/admin/folders',
             '/admin/pdfs',
+            '/admin/import-csv',
+            '/admin/prepare-queue',
             '/admin/orders',
+            '/admin/inbox',
             '/admin/coupons',
             '/admin/reviews',
             '/admin/reports',
             '/admin/media',
             '/admin/users',
             '/admin/logs',
+            '/admin/system-health',
             '/admin/settings',
-            '/admin/admins'
+            '/admin/admins',
+            '/admin/account-security'
         ]
     };
     const WIDTHS = [320, 360, 390, 412, 768];

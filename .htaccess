@@ -72,6 +72,9 @@ ServerSignature Off
     AddOutputFilterByType DEFLATE text/html text/plain text/xml text/css application/javascript application/json application/manifest+json image/svg+xml application/xml
 </IfModule>
 
+# Enable ETag + Last-Modified for static assets
+FileETag MTime Size
+
 <IfModule mod_expires.c>
     ExpiresActive On
     ExpiresByType text/css "access plus 1 year"
@@ -83,3 +86,9 @@ ServerSignature Off
     ExpiresByType image/webp "access plus 1 year"
     ExpiresByType font/woff2 "access plus 1 year"
 </IfModule>
+
+<FilesMatch "\.(css|js|svg|png|jpe?g|webp|ico|woff2|webmanifest)$">
+    <IfModule mod_headers.c>
+        Header append Cache-Control "public"
+    </IfModule>
+</FilesMatch>

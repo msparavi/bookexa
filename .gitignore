@@ -9,6 +9,10 @@ storage/cache/*
 !storage/cache/.htaccess
 storage/pages/*
 !storage/pages/.htaccess
+storage/backups/*
+!storage/backups/.htaccess
+storage/payment_proofs/*
+!storage/payment_proofs/.htaccess
 storage/demo/.tmp*
 
 # Temp upload / OS / IDE files

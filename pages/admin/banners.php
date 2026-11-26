@@ -159,25 +159,25 @@ $fmtDtLocal = function (?string $dt): string {
                 <input type="number" inputmode="numeric" name="sort_order" class="bx-input" value="<?= e((string) ($editBanner['sort_order'] ?? 0)) ?>">
             </div>
             <div>
-                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'শুরু হওয়ার সময়' : 'Schedule Start' ?></label>
-                <input type="datetime-local" name="starts_at" class="bx-input" value="<?= e($fmtDtLocal($editBanner['starts_at'] ?? null)) ?>">
+                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'প্রকাশ শুরুর সময় (Publish At)' : 'Publish At (Scheduled Start)' ?></label>
+                <input type="datetime-local" name="publish_at" class="bx-input" value="<?= e($fmtDtLocal($editBanner['publish_at'] ?? $editBanner['starts_at'] ?? null)) ?>">
             </div>
             <div>
-                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'শেষ হওয়ার সময়' : 'Schedule End' ?></label>
-                <input type="datetime-local" name="ends_at" class="bx-input" value="<?= e($fmtDtLocal($editBanner['ends_at'] ?? null)) ?>">
+                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'প্রকাশ শেষের সময় (Unpublish At)' : 'Unpublish At (Scheduled End)' ?></label>
+                <input type="datetime-local" name="unpublish_at" class="bx-input" value="<?= e($fmtDtLocal($editBanner['unpublish_at'] ?? $editBanner['ends_at'] ?? null)) ?>">
             </div>
         </div>
 
         <div class="bx-grid-2" style="gap:14px;margin-bottom:14px;">
             <div>
                 <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'ডেস্কটপ ব্যানার ছবি (ক্যামেরা/গ্যালারি)' : 'Desktop Image (Camera / Gallery)' ?></label>
-                <input type="file" name="image" accept="image/*" class="bx-input" data-preview-target="banner-desk-preview">
+                <input type="file" name="image" accept="image/jpeg,image/png,image/webp" class="bx-input" data-preview-target="banner-desk-preview">
                 <?php $deskSrc = !empty($editBanner['image']) ? asset($editBanner['image']) : ''; ?>
                 <img id="banner-desk-preview" src="<?= e($deskSrc) ?>" alt="" class="bx-live-preview" style="<?= $deskSrc ? '' : 'display:none;' ?>">
             </div>
             <div>
                 <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'মোবাইল ব্যানার ছবি (ঐচ্ছিক)' : 'Mobile Image Version (Optional)' ?></label>
-                <input type="file" name="mobile_image" accept="image/*" class="bx-input" data-preview-target="banner-mob-preview">
+                <input type="file" name="mobile_image" accept="image/jpeg,image/png,image/webp" class="bx-input" data-preview-target="banner-mob-preview">
                 <?php $mobSrc = !empty($editBanner['mobile_image']) ? asset($editBanner['mobile_image']) : ''; ?>
                 <img id="banner-mob-preview" src="<?= e($mobSrc) ?>" alt="" class="bx-live-preview" style="<?= $mobSrc ? '' : 'display:none;' ?>">
                 <?php if ($mobSrc): ?>

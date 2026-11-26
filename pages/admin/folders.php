@@ -216,10 +216,21 @@ $renderTree = function (int $parentId, int $depth = 0) use (&$renderTree, $byPar
 
                 <div style="margin-bottom:14px;">
                     <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'থাম্বনেইল ছবি (ক্যামেরা/গ্যালারি)' : 'Thumbnail Image (Camera / Gallery)' ?></label>
-                    <input type="file" name="thumbnail" accept="image/*" class="bx-input" data-preview-target="folder-thumb-preview" data-crop-hidden="folder-cropped-data">
+                    <input type="file" name="thumbnail" accept="image/jpeg,image/png,image/webp" class="bx-input" data-preview-target="folder-thumb-preview" data-crop-hidden="folder-cropped-data">
                     <input type="hidden" name="cropped_thumbnail" id="folder-cropped-data">
                     <?php $prevSrc = !empty($editFolder['thumbnail']) ? asset($editFolder['thumbnail']) : ''; ?>
                     <img id="folder-thumb-preview" src="<?= e($prevSrc) ?>" alt="" class="bx-live-preview" style="<?= $prevSrc ? '' : 'display:none;' ?>">
+                </div>
+
+                <div class="bx-grid-2" style="gap:12px;margin-bottom:12px;">
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'প্রকাশের সময় (ঐচ্ছিক)' : 'Publish At (Optional)' ?></label>
+                        <input type="datetime-local" name="publish_at" class="bx-input" value="<?= e(!empty($editFolder['publish_at']) ? date('Y-m-d\TH:i', strtotime((string) $editFolder['publish_at'])) : '') ?>">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'অপ্রকাশের সময় (ঐচ্ছিক)' : 'Unpublish At (Optional)' ?></label>
+                        <input type="datetime-local" name="unpublish_at" class="bx-input" value="<?= e(!empty($editFolder['unpublish_at']) ? date('Y-m-d\TH:i', strtotime((string) $editFolder['unpublish_at'])) : '') ?>">
+                    </div>
                 </div>
 
                 <label style="display:flex;align-items:center;gap:8px;min-height:44px;font-weight:600;">
