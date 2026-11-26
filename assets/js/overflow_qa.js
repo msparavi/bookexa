@@ -11,6 +11,8 @@
             '/book/ssc-bangla-masternote',
             '/shop',
             '/shop/hsc-master-bundle',
+            '/cart',
+            '/shop/track',
             '/search?q=Bangla',
             '/about',
             '/contact',
@@ -38,6 +40,10 @@
             '/admin/import-csv',
             '/admin/prepare-queue',
             '/admin/orders',
+            '/admin/shop-categories',
+            '/admin/shop-products',
+            '/admin/shop-orders',
+            '/admin/delivery-settings',
             '/admin/inbox',
             '/admin/coupons',
             '/admin/reviews',
@@ -46,12 +52,13 @@
             '/admin/users',
             '/admin/logs',
             '/admin/system-health',
+            '/admin/updates',
             '/admin/settings',
             '/admin/admins',
             '/admin/account-security'
         ]
     };
-    const WIDTHS = [320, 360, 390, 412, 768];
+    const WIDTHS = [320, 360, 390, 412, 768, 1280];
 
     const iframe = document.getElementById('sandbox-frame');
     const tbody  = document.getElementById('qa-tbody');

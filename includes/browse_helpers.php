@@ -43,7 +43,8 @@ function browse_build_url(string $basePath, array $filters, array $overrides = [
 
 function fulltext_boolean_query(string $raw): ?string
 {
-    $clean = preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', trim($raw)) ?? '';
+    $norm = function_exists('content_strip_zero_width') ? content_strip_zero_width($raw) : $raw;
+    $clean = preg_replace('/[^\p{L}\p{N}\s]+/u', ' ', trim($norm)) ?? '';
     $words = array_values(array_filter(preg_split('/\s+/u', $clean) ?: [], fn(string $w): bool => mb_strlen($w) >= 3));
     if (!$words) {
         return null;
@@ -55,7 +56,8 @@ function fulltext_boolean_query(string $raw): ?string
 function highlight_search_text(string $text, string $query): string
 {
     $escaped = e($text);
-    $q = trim($query);
+    $cleanQ = function_exists('content_strip_zero_width') ? content_strip_zero_width($query) : $query;
+    $q = trim($cleanQ);
     if ($q === '' || $escaped === '') {
         return $escaped;
     }
@@ -111,18 +113,27 @@ function browse_query_items(array $opts, array $filters): array
     }
 
     $q = trim((string) ($filters['q'] ?? ''));
+    $qNorm = function_exists('content_strip_zero_width') ? trim(content_strip_zero_width($q)) : $q;
     $ftScoreSelect = '';
-    $ft = $q !== '' ? fulltext_boolean_query($q) : null;
-    if ($q !== '') {
-        $like = '%' . $q . '%';
+    $ft = $qNorm !== '' ? fulltext_boolean_query($qNorm) : null;
+    if ($qNorm !== '') {
+        $variants = function_exists('content_bangla_search_variants') ? content_bangla_search_variants($qNorm) : [$qNorm];
+        $likeClauses = [];
+        $likeParams  = [];
+        foreach ($variants as $vq) {
+            $lk = '%' . escape_like($vq) . '%';
+            $likeClauses[] = "i.title_bn LIKE ? ESCAPE '\\\\' OR i.title_en LIKE ? ESCAPE '\\\\' OR i.author_bn LIKE ? ESCAPE '\\\\' OR i.author_en LIKE ? ESCAPE '\\\\' OR COALESCE(i.tags,'') LIKE ? ESCAPE '\\\\' OR i.description_bn LIKE ? ESCAPE '\\\\' OR i.description_en LIKE ? ESCAPE '\\\\'";
+            array_push($likeParams, $lk, $lk, $lk, $lk, $lk, $lk, $lk);
+        }
+        $likeExpr = implode(' OR ', $likeClauses);
         if ($ft !== null) {
             $ftScoreSelect = ', MATCH(i.title_bn, i.title_en, i.author_bn, i.author_en, i.description_bn, i.description_en) AGAINST(? IN BOOLEAN MODE) AS rel_score';
-            $where[] = '(MATCH(i.title_bn, i.title_en, i.author_bn, i.author_en, i.description_bn, i.description_en) AGAINST(? IN BOOLEAN MODE)
-                         OR i.title_bn LIKE ? OR i.title_en LIKE ? OR i.author_bn LIKE ? OR i.author_en LIKE ? OR i.description_bn LIKE ? OR i.description_en LIKE ?)';
-            array_push($params, $ft, $like, $like, $like, $like, $like, $like);
+            $where[] = "(MATCH(i.title_bn, i.title_en, i.author_bn, i.author_en, i.description_bn, i.description_en) AGAINST(? IN BOOLEAN MODE) OR {$likeExpr})";
+            $params[] = $ft;
+            array_push($params, ...$likeParams);
         } else {
-            $where[] = '(i.title_bn LIKE ? OR i.title_en LIKE ? OR i.author_bn LIKE ? OR i.author_en LIKE ? OR i.description_bn LIKE ? OR i.description_en LIKE ?)';
-            array_push($params, $like, $like, $like, $like, $like, $like);
+            $where[] = "({$likeExpr})";
+            array_push($params, ...$likeParams);
         }
     }
 
@@ -180,24 +191,31 @@ function browse_distinct_authors(?int $folderId = null): array
 
 function browse_search_folders(string $q, int $limit = 12): array
 {
-    $q = trim($q);
+    $q = trim(function_exists('content_strip_zero_width') ? content_strip_zero_width($q) : $q);
     if ($q === '') {
         return [];
     }
-    $like = '%' . $q . '%';
+    $variants = function_exists('content_bangla_search_variants') ? content_bangla_search_variants($q) : [$q];
+    $likeClauses = [];
+    $params = [];
+    foreach ($variants as $vq) {
+        $lk = '%' . escape_like($vq) . '%';
+        $likeClauses[] = "f.name_bn LIKE ? ESCAPE '\\\\' OR f.name_en LIKE ? ESCAPE '\\\\' OR f.description_bn LIKE ? ESCAPE '\\\\' OR f.description_en LIKE ? ESCAPE '\\\\'";
+        array_push($params, $lk, $lk, $lk, $lk);
+    }
+    $likeExpr = implode(' OR ', $likeClauses);
     $ft = fulltext_boolean_query($q);
     $pubF = published_window_sql('f');
     $sql = "SELECT f.*
             FROM folders f
             WHERE f.is_active = 1 AND {$pubF} AND ";
     if ($ft !== null) {
-        $sql .= '(MATCH(f.name_bn, f.name_en, f.description_bn, f.description_en) AGAINST(? IN BOOLEAN MODE)
-                 OR f.name_bn LIKE ? OR f.name_en LIKE ? OR f.description_bn LIKE ? OR f.description_en LIKE ?)
-                 ORDER BY MATCH(f.name_bn, f.name_en, f.description_bn, f.description_en) AGAINST(? IN BOOLEAN MODE) DESC, f.sort_order ASC LIMIT ' . (int) $limit;
-        return db_all($sql, [$ft, $like, $like, $like, $like, $ft]);
+        $sql .= "(MATCH(f.name_bn, f.name_en, f.description_bn, f.description_en) AGAINST(? IN BOOLEAN MODE) OR {$likeExpr})
+                 ORDER BY MATCH(f.name_bn, f.name_en, f.description_bn, f.description_en) AGAINST(? IN BOOLEAN MODE) DESC, f.sort_order ASC LIMIT " . (int) $limit;
+        return db_all($sql, array_merge([$ft], $params, [$ft]));
     }
-    $sql .= '(f.name_bn LIKE ? OR f.name_en LIKE ? OR f.description_bn LIKE ? OR f.description_en LIKE ?) ORDER BY f.sort_order ASC LIMIT ' . (int) $limit;
-    return db_all($sql, [$like, $like, $like, $like]);
+    $sql .= "({$likeExpr}) ORDER BY f.sort_order ASC LIMIT " . (int) $limit;
+    return db_all($sql, $params);
 }
 
 function browse_search_suggestions(string $q, int $maxTotal = 6): array
@@ -206,12 +224,12 @@ function browse_search_suggestions(string $q, int $maxTotal = 6): array
     if (mb_strlen($q) < 1) {
         return ['folders' => [], 'items' => []];
     }
-    $like = '%' . $q . '%';
+    $like = '%' . escape_like($q) . '%';
     $pub = published_window_sql();
     $items = db_all(
         "SELECT id, slug, title_bn, title_en, author_bn, author_en, is_free, price, cover
          FROM items
-         WHERE is_active = 1 AND {$pub} AND (title_bn LIKE ? OR title_en LIKE ? OR author_bn LIKE ? OR author_en LIKE ?)
+         WHERE is_active = 1 AND {$pub} AND (title_bn LIKE ? ESCAPE '\\\\' OR title_en LIKE ? ESCAPE '\\\\' OR author_bn LIKE ? ESCAPE '\\\\' OR author_en LIKE ? ESCAPE '\\\\')
          ORDER BY is_featured DESC, read_count DESC, id DESC LIMIT 4",
         [$like, $like, $like, $like]
     );
@@ -219,7 +237,7 @@ function browse_search_suggestions(string $q, int $maxTotal = 6): array
     $folders = db_all(
         "SELECT id, slug, name_bn, name_en
          FROM folders
-         WHERE is_active = 1 AND {$pub} AND (name_bn LIKE ? OR name_en LIKE ?)
+         WHERE is_active = 1 AND {$pub} AND (name_bn LIKE ? ESCAPE '\\\\' OR name_en LIKE ? ESCAPE '\\\\')
          ORDER BY sort_order ASC, id DESC LIMIT " . (int) $rem,
         [$like, $like]
     );

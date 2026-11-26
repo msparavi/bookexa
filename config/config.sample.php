@@ -5,8 +5,9 @@
  */
 
 return [
-    'app_name'  => 'Bookexa',
-    'app_env'   => 'production',
+    'app_name'    => 'Bookexa',
+    'app_version' => '2.4.0',
+    'app_env'     => 'production',
     'timezone'  => 'Asia/Dhaka',
 
     'base_url'  => '',

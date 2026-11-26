@@ -24,10 +24,16 @@ function render_folder_card(array $folder, string $href, array $options = []): s
     [$accent1, $accent2] = bookexa_folder_color_pair((string) ($folder['slug'] ?? ''), (string) ($folder['accent_color'] ?? ''));
     $accent  = e($accent1);
     $accent2 = e($accent2);
-    $thumb = !empty($folder['thumbnail']) ? asset($folder['thumbnail']) : asset('uploads/folders/academic.svg');
+    $thumbRel = !empty($folder['thumbnail']) ? (string) $folder['thumbnail'] : 'uploads/folders/academic.svg';
     $title = bi($folder, 'name');
     $desc  = bi($folder, 'description');
     $hlQ   = (string) ($options['highlightQuery'] ?? '');
+    $thumbHtml = render_responsive_picture($thumbRel, $title, [
+        'width'  => 480,
+        'height' => 300,
+        'sizes'  => '(max-width: 600px) 46vw, 260px',
+        'is_lcp' => !empty($options['is_lcp']),
+    ]);
     $titleHtml = $hlQ !== '' ? highlight_search_text($title, $hlQ) : e($title);
     $subCount = (int) ($folder['subfolder_count'] ?? 0);
     $itemCount = (int) ($folder['item_count'] ?? 0);
@@ -37,16 +43,15 @@ function render_folder_card(array $folder, string $href, array $options = []): s
         <div class="bx-folder-inner">
             <div class="bx-folder-lid"></div>
             <div class="bx-folder-peek">
-                <img src="<?= e($thumb) ?>" alt="<?= e($title) ?>" width="480" height="300" loading="lazy" decoding="async">
+                <?= $thumbHtml ?>
             </div>
             <div class="bx-folder-face">
                 <h3 class="bx-folder-title"><?= $titleHtml ?></h3>
                 <?php if ($desc !== ''): ?>
                     <p class="bx-folder-desc"><?= $hlQ !== '' ? highlight_search_text($desc, $hlQ) : e($desc) ?></p>
                 <?php endif; ?>
-                <div class="bx-folder-meta">
-                    <span><?= icon('folder') ?> <?= e(num_localize($subCount)) ?> <?= e(t('folders_count')) ?></span>
-                    <span><?= e(num_localize($itemCount)) ?> <?= e(t('books_count')) ?></span>
+                <div class="bx-folder-meta" title="<?= e(num_localize($subCount) . ' ' . t('folders_count') . ' · ' . num_localize($itemCount) . ' ' . t('books_count')) ?>">
+                    <span class="bx-folder-meta-line"><?= icon('folder') ?><span class="bx-folder-meta-text"><?= e(num_localize($subCount)) ?> <?= e(t('folders_count')) ?> · <?= e(num_localize($itemCount)) ?> <?= e(t('books_count')) ?></span></span>
                 </div>
             </div>
         </div>
@@ -58,7 +63,7 @@ function render_folder_card(array $folder, string $href, array $options = []): s
 function render_book_card(array $item, array $options = []): string
 {
     $isFree = (bool) $item['is_free'] || (float) $item['price'] <= 0;
-    $cover = !empty($item['cover']) ? asset($item['cover']) : asset('uploads/covers/cover-bangla.svg');
+    $coverRel = !empty($item['cover']) ? (string) $item['cover'] : 'uploads/covers/cover-bangla.svg';
     $title = bi($item, 'title');
     $author = bi($item, 'author');
     $hlQ = (string) ($options['highlightQuery'] ?? '');
@@ -70,12 +75,18 @@ function render_book_card(array $item, array $options = []): string
     $isWished = $user ? user_has_wishlisted((int) $user['id'], $itemId) : false;
     $ratingInfo = item_rating_summary($itemId);
     $wishLabel = current_lang() === 'bn' ? 'পছন্দের তালিকায় রাখুন' : 'Toggle wishlist';
+    $coverHtml = render_responsive_picture($coverRel, $title, [
+        'width'  => 400,
+        'height' => 600,
+        'sizes'  => '(max-width: 600px) 46vw, 240px',
+        'is_lcp' => !empty($options['is_lcp']),
+    ]);
 
     ob_start(); ?>
     <div class="bx-book-3d bx-reveal">
         <article class="bx-book-card">
             <a href="<?= e($detailUrl) ?>" class="bx-book-cover">
-                <img src="<?= e($cover) ?>" alt="<?= e($title) ?>" width="400" height="600" loading="lazy" decoding="async">
+                <?= $coverHtml ?>
                 <span class="bx-book-ribbon <?= $isFree ? 'free' : '' ?>">
                     <?= e($isFree ? t('free_badge') : format_bdt((float) $item['price'])) ?>
                 </span>

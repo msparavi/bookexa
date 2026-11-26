@@ -6,6 +6,191 @@ function e(?string $str): string
     return htmlspecialchars((string) $str, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+function json_response(array $payload, int $status = 200): never
+{
+    http_response_code($status);
+    header('Content-Type: application/json; charset=UTF-8');
+    header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function render_public(string $viewFile, array $vars = []): never
+{
+    if (!empty($vars['robotsNoIndex'])) {
+        header('X-Robots-Tag: noindex, nofollow');
+    }
+    extract($vars, EXTR_SKIP);
+    require APP_ROOT . '/includes/header.php';
+    require APP_ROOT . '/pages/' . $viewFile;
+    require APP_ROOT . '/includes/footer.php';
+    exit;
+}
+
+function bookexa_version(): string
+{
+    return (string) app_config('app_version', '2.4.0');
+}
+
+function is_demo_mode(): bool
+{
+    if (!empty(app_config('demo_mode', false))) {
+        return true;
+    }
+    return site_setting('demo_mode', '0') === '1';
+}
+
+function sanitize_hex_color(string $raw, string $default = '#2B2F77'): string
+{
+    $raw = strtoupper(trim($raw));
+    if (preg_match('/^#[0-9A-F]{6}$/', $raw)) {
+        return $raw;
+    }
+    return $default;
+}
+
+function sanitize_social_url(string $raw): string
+{
+    $raw = trim($raw);
+    if ($raw === '') {
+        return '';
+    }
+    if (!preg_match('#^https?://#i', $raw)) {
+        return '';
+    }
+    $valid = filter_var($raw, FILTER_VALIDATE_URL);
+    return $valid !== false ? $valid : '';
+}
+
+function theme_font_stack_pair(?string $pair = null): array
+{
+    $pair = $pair ?? site_setting('theme_font_pair', 'hind_noto');
+    return match ($pair) {
+        'system_clean' => [
+            'label' => 'Clean System Sans (Zero Webfonts)',
+            'sans'  => "system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+            'serif' => "Georgia, 'Noto Serif Bengali Fallback', serif",
+        ],
+        'editorial_serif' => [
+            'label' => 'Editorial Serif Dominant',
+            'sans'  => "'Hind Siliguri', 'Hind Siliguri Fallback', system-ui, sans-serif",
+            'serif' => "'Noto Serif Bengali', 'Noto Serif Bengali Fallback', Georgia, 'Times New Roman', serif",
+        ],
+        'bengali_modern' => [
+            'label' => 'Bengali Modern (Hind Siliguri Everywhere)',
+            'sans'  => "'Hind Siliguri', 'Hind Siliguri Fallback', system-ui, -apple-system, sans-serif",
+            'serif' => "'Hind Siliguri', 'Hind Siliguri Fallback', Georgia, sans-serif",
+        ],
+        default => [
+            'label' => 'Bookexa Classic (Hind Siliguri Display & Body)',
+            'sans'  => "'Hind Siliguri', 'Hind Siliguri Fallback', system-ui, -apple-system, sans-serif",
+            'serif' => "'Hind Siliguri', 'Hind Siliguri Fallback', 'Noto Serif Bengali Fallback', Georgia, serif",
+        ],
+    };
+}
+
+function theme_css_version_hash(): string
+{
+    return substr(md5(
+        site_setting('theme_primary_color', '#2B2F77')
+        . '|' . site_setting('theme_accent_color', '#F4A62A')
+        . '|' . site_setting('theme_font_pair', 'hind_noto')
+    ), 0, 8);
+}
+
+function app_secret(): string
+{
+    static $cachedSecret = null;
+    if ($cachedSecret !== null) {
+        return $cachedSecret;
+    }
+    $secret = trim((string) app_config('security.app_secret', ''));
+    if ($secret === '' || strlen($secret) < 32 || $secret === 'CHANGE_ME_ON_INSTALL') {
+        $msg = '[' . date('c') . '] CRITICAL: Missing or weak security.app_secret in config/config.php (must be >= 32 chars and not CHANGE_ME_ON_INSTALL).';
+        @error_log($msg . "\n");
+        if (!headers_sent()) {
+            http_response_code(500);
+            header('Content-Type: text/html; charset=UTF-8');
+        }
+        echo '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>500 Configuration Error</title></head><body style="font-family:sans-serif;padding:36px;max-width:600px;margin:0 auto;"><h1>500 Internal Server Error</h1><p>Application security key is missing or misconfigured. Please contact the site administrator.</p></body></html>';
+        exit(1);
+    }
+    $cachedSecret = $secret;
+    return $cachedSecret;
+}
+
+function safe_internal_path(?string $raw, string $fallback = '/library'): string
+{
+    if ($raw === null) {
+        return $fallback;
+    }
+    $raw = trim($raw);
+    if ($raw === '') {
+        return $fallback;
+    }
+    // Check raw string plus multiple URL-decoding passes to defeat encoded traversal/protocol tricks
+    $probe = $raw;
+    for ($i = 0; $i < 3; $i++) {
+        if (preg_match('/[\x00-\x1F\x7F\\\\]/', $probe) || str_contains($probe, '\\')) {
+            return $fallback;
+        }
+        if (str_starts_with($probe, '//')) {
+            return $fallback;
+        }
+        $beforeQuery = strstr($probe, '?', true);
+        $pathOnlyCheck = $beforeQuery !== false ? $beforeQuery : $probe;
+        if (preg_match('/^[a-zA-Z][a-zA-Z0-9+.-]*:/', $pathOnlyCheck) || str_contains($pathOnlyCheck, '://')) {
+            return $fallback;
+        }
+        if (!str_starts_with($probe, '/')) {
+            return $fallback;
+        }
+        $decoded = rawurldecode($probe);
+        if ($decoded === $probe) {
+            break;
+        }
+        $probe = $decoded;
+    }
+
+    $parts = @parse_url($raw);
+    if (
+        !is_array($parts)
+        || !empty($parts['scheme'])
+        || !empty($parts['host'])
+        || !empty($parts['user'])
+        || !empty($parts['pass'])
+    ) {
+        return $fallback;
+    }
+
+    $path = (string) ($parts['path'] ?? '');
+    if ($path === '' || $path[0] !== '/' || str_starts_with($path, '//') || str_contains($path, '\\')) {
+        return $fallback;
+    }
+
+    if (defined('BASE_PATH') && BASE_PATH !== '') {
+        if ($path === BASE_PATH) {
+            $path = '/';
+        } elseif (str_starts_with($path, BASE_PATH . '/')) {
+            $path = substr($path, strlen(BASE_PATH));
+        }
+    }
+
+    $result = $path;
+    if (!empty($parts['query'])) {
+        $result .= '?' . $parts['query'];
+    }
+    if (!empty($parts['fragment'])) {
+        $result .= '#' . $parts['fragment'];
+    }
+    return $result;
+}
+
+function escape_like(string $str): string
+{
+    return strtr($str, ['\\' => '\\\\', '%' => '\\%', '_' => '\\_']);
+}
+
 function split_path_and_query(string $path): array
 {
     $qPos = strpos($path, '?');
@@ -89,14 +274,24 @@ function asset(string $path): string
 function render_error_page(int $errCode, ?string $errTitle = null, ?string $errDesc = null): never
 {
     http_response_code($errCode);
+    if ($errCode === 503) {
+        header('Retry-After: 3600');
+        header('X-Robots-Tag: noindex, nofollow');
+    } elseif ($errCode === 404 || $errCode === 410) {
+        header('X-Robots-Tag: noindex, nofollow');
+        if ($errCode === 404 && function_exists('seo_log_404')) {
+            seo_log_404((string) ($_SERVER['REQUEST_URI'] ?? '/'));
+        }
+    }
     $pageTitle = (string) $errCode;
+    $robotsNoIndex = true;
     $activeNav = '';
     if ($errCode !== 500 && function_exists('current_lang') && is_file(APP_ROOT . '/includes/header.php')) {
         require APP_ROOT . '/includes/header.php';
         require APP_ROOT . '/pages/error.php';
         require APP_ROOT . '/includes/footer.php';
     } else {
-        echo '<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>' . $errCode . ' — Bookexa</title><link rel="stylesheet" href="' . e(asset('assets/css/tokens.css')) . '"><link rel="stylesheet" href="' . e(asset('assets/css/components.css')) . '"></head><body><main class="bx-main">';
+        echo '<!DOCTYPE html><html lang="en" data-theme="light"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>' . $errCode . ' — Bookexa</title><link rel="stylesheet" href="' . e(asset('assets/css/tokens.css')) . '"><link rel="stylesheet" href="' . e(asset('assets/css/components.css')) . '"></head><body><main class="bx-main">';
         require APP_ROOT . '/pages/error.php';
         echo '</main></body></html>';
     }
@@ -129,6 +324,9 @@ function client_ip(): string
 
 function slugify(string $text): string
 {
+    if (function_exists('seo_transliterate_bn_to_ascii')) {
+        $text = seo_transliterate_bn_to_ascii($text);
+    }
     $text = strtolower(trim($text));
     $text = preg_replace('/[^a-z0-9\s-]+/', '', $text) ?? '';
     $text = preg_replace('/[\s-]+/', '-', $text) ?? '';
@@ -206,8 +404,20 @@ function invalidate_folder_and_sitemap_cache(bool $recomputeCounts = true): void
     }
     $base = APP_ROOT . '/storage/cache';
     @unlink($base . '/folder_tree.json');
-    foreach (['sitemap.xml', 'sitemap-static.xml', 'sitemap-folders.xml', 'sitemap-books.xml'] as $sm) {
-        @unlink($base . '/' . $sm);
+    foreach (glob($base . '/sitemap*.xml') ?: [] as $smFile) {
+        @unlink($smFile);
+    }
+    foreach (glob($base . '/og/*.png') ?: [] as $ogFile) {
+        @unlink($ogFile);
+    }
+    foreach (glob($base . '/llms*.txt') ?: [] as $llmsFile) {
+        @unlink($llmsFile);
+    }
+    foreach (glob($base . '/aeo_*.json') ?: [] as $aeoCache) {
+        @unlink($aeoCache);
+    }
+    if (function_exists('perf_clear_page_cache')) {
+        perf_clear_page_cache();
     }
 }
 
@@ -320,6 +530,7 @@ function get_cached_folder_tree(bool $forceRefresh = false): array
     $payload = [
         'generated_at' => time(),
         'total_active' => count($folders),
+        'total_items'  => array_sum($itemCounts),
         'byId'         => $byId,
         'children'     => $children,
     ];

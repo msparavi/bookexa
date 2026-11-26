@@ -74,7 +74,9 @@ function smtp_send_mail(string $toEmail, string $subject, string $htmlBody, stri
         return ['ok' => false, 'skipped' => true, 'error' => 'Invalid or local placeholder recipient address.'];
     }
 
-    $cfg = $overrideCfg ? array_merge(bookexa_smtp_config(), $overrideCfg) : bookexa_smtp_config();
+    $cfg = $overrideCfg
+        ? array_merge(['host' => '', 'port' => 587, 'user' => '', 'pass' => '', 'from_name' => 'Bookexa', 'from_email' => 'no-reply@bookexa.com', 'encryption' => 'tls'], $overrideCfg)
+        : bookexa_smtp_config();
     $host = trim((string) $cfg['host']);
     $port = (int) $cfg['port'];
     $enc  = strtolower((string) $cfg['encryption']);

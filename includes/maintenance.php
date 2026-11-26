@@ -154,6 +154,15 @@ function run_lazy_maintenance_cleanup(): void
     }
 
     run_daily_db_backup_if_due(false);
+    if (function_exists('growth_indexnow_flush')) {
+        growth_indexnow_flush(false, 200);
+    }
+    if (function_exists('growth_link_checker_tick')) {
+        growth_link_checker_tick(2);
+    }
+    if (function_exists('growth_check_alerts_on_telemetry')) {
+        growth_check_alerts_on_telemetry();
+    }
 
     // 5. Purge stale cached PDF files older than pdf_cache_ttl
     $ttl = max(3600, (int) app_config('security.pdf_cache_ttl', 21600));

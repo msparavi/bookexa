@@ -60,21 +60,80 @@ function totp_code_at(string $secret, int $slice, int $digits = 6): string
     return str_pad((string) ($binary % (10 ** $digits)), $digits, '0', STR_PAD_LEFT);
 }
 
-function totp_verify_code(string $secret, string $code, int $window = 1, int $period = 30, ?int $timestamp = null): bool
+function totp_crypto_key(): string
+{
+    $secret = function_exists('app_secret') ? app_secret() : (string) app_config('security.app_secret', '');
+    if (function_exists('hash_hkdf')) {
+        return hash_hkdf('sha256', $secret, 32, 'bookexa-totp-aes256gcm');
+    }
+    return hash_hmac('sha256', 'bookexa-totp-aes256gcm', $secret, true);
+}
+
+function totp_encrypt_secret(string $plainBase32): string
+{
+    $plainBase32 = trim($plainBase32);
+    if ($plainBase32 === '' || str_starts_with($plainBase32, 'enc:v1:')) {
+        return $plainBase32;
+    }
+    $iv = random_bytes(12);
+    $tag = '';
+    $cipher = openssl_encrypt($plainBase32, 'aes-256-gcm', totp_crypto_key(), OPENSSL_RAW_DATA, $iv, $tag, '', 16);
+    if ($cipher === false || strlen($tag) !== 16) {
+        throw new RuntimeException('Failed to encrypt TOTP secret.');
+    }
+    return 'enc:v1:' . base64_encode($iv . $tag . $cipher);
+}
+
+function totp_decrypt_secret(string $stored, ?bool &$wasLegacyPlaintext = null): ?string
+{
+    $wasLegacyPlaintext = false;
+    $stored = trim($stored);
+    if ($stored === '') {
+        return null;
+    }
+    if (!str_starts_with($stored, 'enc:v1:')) {
+        $clean = strtoupper(preg_replace('/[^A-Z2-7]/', '', $stored) ?? '');
+        if (strlen($clean) < 16) {
+            return null;
+        }
+        $wasLegacyPlaintext = true;
+        return $clean;
+    }
+    $raw = base64_decode(substr($stored, 7), true);
+    if ($raw === false || strlen($raw) <= 28) {
+        return null;
+    }
+    $iv = substr($raw, 0, 12);
+    $tag = substr($raw, 12, 16);
+    $cipher = substr($raw, 28);
+    $plain = openssl_decrypt($cipher, 'aes-256-gcm', totp_crypto_key(), OPENSSL_RAW_DATA, $iv, $tag, '');
+    return $plain !== false ? $plain : null;
+}
+
+function totp_verify_with_step(string $secret, string $code, int $window = 1, int $period = 30, ?int $timestamp = null, ?int $lastUsedStep = null): ?int
 {
     $clean = preg_replace('/\D/', '', trim($code)) ?? '';
     if (strlen($clean) !== 6) {
-        return false;
+        return null;
     }
     $ts = $timestamp ?? time();
     $currSlice = intdiv($ts, $period);
     for ($i = -$window; $i <= $window; $i++) {
-        $cand = totp_code_at($secret, $currSlice + $i, 6);
+        $step = $currSlice + $i;
+        if ($lastUsedStep !== null && $step <= $lastUsedStep) {
+            continue;
+        }
+        $cand = totp_code_at($secret, $step, 6);
         if ($cand !== '' && hash_equals($cand, $clean)) {
-            return true;
+            return $step;
         }
     }
-    return false;
+    return null;
+}
+
+function totp_verify_code(string $secret, string $code, int $window = 1, int $period = 30, ?int $timestamp = null): bool
+{
+    return totp_verify_with_step($secret, $code, $window, $period, $timestamp, null) !== null;
 }
 
 function totp_provisioning_uri(string $issuer, string $accountEmail, string $secret): string

@@ -98,6 +98,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <?= e(site_setting('bkash_number')) ?> <br>
                     <?= e(site_setting('nagad_number')) ?>
                 </div>
+                <div style="padding:14px;border-radius:12px;background:var(--bg-alt);">
+                    <strong><?= $lang === 'bn' ? 'সম্পাদকীয় ও সংশোধনী যোগাযোগ' : 'Editorial &amp; Corrections' ?>:</strong><br>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:0.86rem;">
+                        <a href="<?= e(url('/editorial-policy')) ?>"><?= e(t('legal_editorial')) ?></a>
+                        <a href="<?= e(url('/how-we-review')) ?>"><?= e(t('legal_review_policy')) ?></a>
+                        <a href="<?= e(url('/corrections-policy')) ?>"><?= e(t('legal_corrections')) ?></a>
+                    </div>
+                </div>
             </div>
         </div>
 

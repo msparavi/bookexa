@@ -1,0 +1,74 @@
+name: Bookexa CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_password
+          MYSQL_DATABASE: bookexa
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot_ci_password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, curl, gd, mbstring, fileinfo, openssl, zlib
+          tools: none
+
+      - name: Prepare directories and CI configuration
+        run: |
+          mkdir -p storage/cache storage/pages storage/logs storage/backups storage/payment_proofs storage/demo uploads
+          cat > config/config.php << 'EOF'
+          <?php
+          return [
+              'app_name'    => 'Bookexa',
+              'app_version' => '2.4.0',
+              'app_env'     => 'local',
+              'timezone'    => 'Asia/Dhaka',
+              'base_url'    => 'http://localhost',
+              'base_path'   => '',
+              'db' => [
+                  'host'    => '127.0.0.1',
+                  'port'    => '3306',
+                  'name'    => 'bookexa',
+                  'user'    => 'root',
+                  'pass'    => 'root_ci_password',
+                  'charset' => 'utf8mb4',
+              ],
+              'security' => [
+                  'app_secret'        => 'ci_test_secret_bookexa_32_characters_minimum_entropy_key_01',
+                  'pdf_cache_enabled' => true,
+                  'pdf_cache_ttl'     => 21600,
+              ],
+              'cdn' => ['enabled' => false],
+          ];
+          EOF
+
+      - name: Import fresh MySQL schema
+        run: |
+          mysql -h 127.0.0.1 -u root -proot_ci_password bookexa < database/bookexa.sql
+
+      - name: PHP Syntax Check (all .php files)
+        run: |
+          find . -type f -name '*.php' -print0 | xargs -0 -n1 php -l
+
+      - name: Run Automated Test Suite
+        run: php tests/run.php

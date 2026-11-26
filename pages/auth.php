@@ -45,7 +45,7 @@ $pwEyeSvg = '<svg class="bx-icon bx-pw-eye-open" viewBox="0 0 24 24" fill="none"
                 <?php endif; ?>
                 <p style="text-align:center;margin:18px 0 0;font-size:0.92rem;" class="bx-muted">
                     <?= $lang === 'bn' ? 'নতুন অ্যাকাউন্ট?' : 'New here?' ?>
-                    <a href="<?= e(url('/register')) ?>" style="color:var(--gold-text);font-weight:700;"><?= $lang === 'bn' ? 'রেজিস্টার করুন' : 'Create Account' ?></a>
+                    <a href="<?= e(url('/register' . (!empty($next) ? '?next=' . rawurlencode($next) : ''))) ?>" style="color:var(--gold-text);font-weight:700;"><?= $lang === 'bn' ? 'রেজিস্টার করুন' : 'Create Account' ?></a>
                 </p>
 
             <?php elseif ($authMode === 'otp'): ?>
@@ -67,6 +67,24 @@ $pwEyeSvg = '<svg class="bx-icon bx-pw-eye-open" viewBox="0 0 24 24" fill="none"
                             <input class="bx-input" id="o-code" name="otp_code" required inputmode="numeric" maxlength="6" placeholder="123456" autocomplete="one-time-code">
                         </div>
                         <button type="submit" class="bx-btn bx-btn-primary" style="width:100%;" data-loading-label="<?= e($lang === 'bn' ? 'যাচাই হচ্ছে...' : 'Verifying...') ?>"><?= $lang === 'bn' ? 'কোড যাচাই ও লগইন' : 'Verify & Sign In' ?></button>
+                    </form>
+                    <form method="post" action="<?= e(url('/login')) ?>" style="margin-top:10px;" data-otp-resend-form>
+                        <?= csrf_field() ?>
+                        <input type="hidden" name="action" value="send_login_otp">
+                        <input type="hidden" name="next" value="<?= e($next ?? '') ?>">
+                        <input type="hidden" name="phone" value="<?= e($otpPhone ?? '') ?>">
+                        <?php $cdSec = max(0, (int) ($otpCooldown ?? 60)); ?>
+                        <button type="submit"
+                                class="bx-btn bx-btn-outline bx-btn-sm"
+                                style="width:100%;"
+                                data-otp-countdown="<?= $cdSec ?>"
+                                data-wait-tpl="<?= e($lang === 'bn' ? 'পুনরায় পাঠান (%ss)' : 'Resend OTP in %ss') ?>"
+                                data-ready-label="<?= e($lang === 'bn' ? 'পুনরায় OTP পাঠান' : 'Resend OTP Code') ?>"
+                                <?= $cdSec > 0 ? 'disabled' : '' ?>>
+                            <?= $cdSec > 0
+                                ? e(($lang === 'bn' ? "পুনরায় পাঠান ({$cdSec}s)" : "Resend OTP in {$cdSec}s"))
+                                : e($lang === 'bn' ? 'পুনরায় OTP পাঠান' : 'Resend OTP Code') ?>
+                        </button>
                     </form>
                 <?php else: ?>
                     <form method="post" action="<?= e(url('/login')) ?>" data-loading-form>
@@ -110,6 +128,7 @@ $pwEyeSvg = '<svg class="bx-icon bx-pw-eye-open" viewBox="0 0 24 24" fill="none"
                 <?php if (!empty($error)): ?><div class="bx-auth-alert is-danger" role="alert"><?= e($error) ?></div><?php endif; ?>
                 <form method="post" action="<?= e(url('/register')) ?>" data-loading-form>
                     <?= csrf_field() ?>
+                    <input type="hidden" name="next" value="<?= e($next ?? '') ?>">
                     <div class="bx-field">
                         <label for="r-name"><?= $lang === 'bn' ? 'পূর্ণ নাম *' : 'Full Name *' ?></label>
                         <input class="bx-input" id="r-name" name="name" required autocomplete="name" placeholder="<?= $lang === 'bn' ? 'আপনার পূর্ণ নাম' : 'Enter your full name' ?>" value="<?= e($_POST['name'] ?? '') ?>">

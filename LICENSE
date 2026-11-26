@@ -1,0 +1,38 @@
+COMMERCIAL SINGLE-DOMAIN LICENSE
+Copyright (c) 2026 Bookexa Contributors. All rights reserved.
+
+This license governs the commercial use of the Bookexa software package ("Software").
+
+1. GRANT OF LICENSE
+   Subject to valid purchase of a license, you are granted a non-exclusive,
+   non-transferable, perpetual right to install and operate ONE (1) production
+   instance of the Software on ONE (1) primary domain (plus its subdomains, such
+   as a static media CDN subdomain) and up to TWO (2) non-public local/staging
+   environments solely for development and testing.
+
+2. SOURCE ACCESS & NO OBFUSCATION
+   The Software is delivered in clean, unencrypted PHP, HTML, CSS, and JavaScript
+   source form without obfuscation, ionCube loaders, or remote phone-home license
+   checks. You are free to inspect, customize, extend, and audit the source code
+   for your licensed site.
+
+3. YOUR CONTENT & DATA OWNERSHIP
+   You retain 100% ownership and control of all books, PDFs, product listings,
+   user records, orders, branding assets, and database contents hosted on your
+   installation.
+
+4. RESTRICTIONS
+   You may NOT:
+   (a) Redistribute, resell, sublicense, rent, leak, or publish the Software
+       source code or modified derivatives as a competing template, script, or
+       SaaS turnkey installer to third parties;
+   (b) Deploy the same single-domain license simultaneously across multiple
+       unrelated production client websites or distinct commercial brands without
+       purchasing an additional license per domain.
+
+5. WARRANTY & LIABILITY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO MERCHANTABILITY, FITNESS FOR A
+   PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS BE
+   LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM USE OF THE
+   SOFTWARE OR HOSTING CONFIGURATION.

@@ -48,46 +48,67 @@ $renderTree = function (int $parentId, int $depth = 0) use (&$renderTree, $byPar
     if (!$nodes) {
         return;
     }
+    $subLabel = $lang === 'bn' ? 'সাব-ফোল্ডার' : 'Subfolders';
+    $bkLabel  = $lang === 'bn' ? 'বই' : 'PDFs';
     echo '<ul class="' . ($parentId === 0 ? 'bx-tree' : 'bx-tree-children') . '">';
     foreach ($nodes as $f) {
         $fid = (int) $f['id'];
-        $hasChildren = !empty($byParent[$fid]);
+        $childCount = count($byParent[$fid] ?? []);
+        $hasChildren = $childCount > 0;
         $thumbSrc = asset((string) ($f['thumbnail'] ?: 'uploads/folders/academic.svg'));
         $direct = (int) $f['direct_items'];
         $total = $subtreeCounts[$fid] ?? $direct;
         $crumb = folder_breadcrumb_string($fid);
         $isActive = (int) $f['is_active'] === 1;
-        $slugTitle = '/' . $f['slug'] . ' — ' . $crumb;
+        $slugTitle = $crumb . ' · /' . $f['slug'];
+        $cappedDepth = min(6, $depth);
 
-        echo '<li class="bx-tree-node" data-node-id="' . $fid . '" style="--tree-depth:' . $depth . ';">';
-        echo '<div class="bx-tree-row" draggable="true" data-folder-id="' . $fid . '">';
-        echo '<div class="bx-tree-left">';
+        echo '<li class="bx-tree-node" data-node-id="' . $fid . '" data-depth="' . $depth . '" style="--tree-depth:' . $cappedDepth . ';">';
+        echo '<div class="bx-tree-row" data-folder-id="' . $fid . '" title="' . e($slugTitle) . '">';
+
+        // Line 1: Expand arrow, drag handle (only in Reorder mode), thumbnail, folder name (wraps up to 2 lines)
+        echo '<div class="bx-tree-line-1">';
         if ($hasChildren) {
             echo '<button type="button" class="bx-tree-toggle" data-tree-toggle aria-expanded="true" aria-label="Toggle children">›</button>';
         } else {
             echo '<span class="bx-tree-spacer" aria-hidden="true"></span>';
         }
-        echo '<span class="bx-drag-handle" title="' . ($lang === 'bn' ? 'টেনে সরান' : 'Drag handle') . '">⋮⋮</span>';
-        echo '<img src="' . e($thumbSrc) . '" alt="" class="bx-tree-thumb">';
-        echo '<div class="bx-tree-name-col" title="' . e($slugTitle) . '">';
+        echo '<span class="bx-drag-handle" aria-label="' . e($lang === 'bn' ? 'টেনে সরান' : 'Drag to reorder') . '" title="' . e($lang === 'bn' ? 'টেনে সরান' : 'Drag handle') . '">⋮⋮</span>';
+        echo '<img src="' . e($thumbSrc) . '" alt="" class="bx-tree-thumb" width="32" height="32">';
+        echo '<div class="bx-tree-title-wrap" title="' . e($slugTitle) . '">';
         echo '<strong class="bx-tree-bn bx-inline-edit" data-inline-rename="' . $fid . '" data-endpoint="' . e(url('/admin/api/folder-rename')) . '">' . e($f['name_bn']) . '</strong>';
-        echo '<span class="bx-tree-en">' . e($f['name_en']) . ' · /' . e($f['slug']) . '</span>';
+        if ($depth >= 2) {
+            echo '<span class="bx-tree-path-hint" title="' . e($crumb) . '" aria-label="' . e($crumb) . '">' . e($crumb) . '</span>';
+        }
         echo '</div>';
         echo '</div>';
 
-        echo '<span class="bx-tree-count" title="' . e($direct . ' direct / ' . $total . ' total') . '">' . $direct . ' / ' . $total . '</span>';
-
+        // Line 2: English name & slug (single line ellipsis) + compact count chips + status switch + 3-dot menu
+        echo '<div class="bx-tree-line-2">';
+        echo '<span class="bx-tree-en" title="' . e($slugTitle) . '">' . e($f['name_en']) . ' · /' . e($f['slug']) . '</span>';
         echo '<div class="bx-tree-actions">';
+        echo '<span class="bx-tree-chips" title="' . e("{$childCount} {$subLabel} · {$direct} {$bkLabel} ({$total} total)") . '">';
+        echo '<span class="bx-tree-chip">' . $childCount . 'F</span>';
+        echo '<span class="bx-tree-chip">' . $direct . '/' . $total . 'P</span>';
+        if ($depth === 0) {
+            $rootText = trim(strip_tags((string) ($f['intro_bn'] ?: $f['intro_en'] ?: $f['description_bn'] ?: $f['description_en'] ?: '')));
+            $rootWc = function_exists('content_word_count') ? content_word_count($rootText) : str_word_count($rootText);
+            if ($rootWc < 150) {
+                echo '<span class="bx-tree-chip" style="background:rgba(244,166,42,0.22);color:var(--gold-text);" title="' . e("Thin top-level folder copy ({$rootWc}/150 words)") . '">' . $rootWc . 'w &lt;150</span>';
+            }
+        }
+        echo '</span>';
+
         echo '<form method="post" action="' . e(url('/admin/folders')) . '" style="margin:0;">'
             . csrf_field()
             . '<input type="hidden" name="action" value="toggle_folder">'
             . '<input type="hidden" name="id" value="' . $fid . '">'
             . '<input type="hidden" name="_return" value="' . e($returnUrl) . '">'
             . '<button type="submit" class="bx-switch-btn ' . ($isActive ? 'is-on' : '') . '" aria-pressed="' . ($isActive ? 'true' : 'false') . '" title="' . ($lang === 'bn' ? 'অবস্থা পরিবর্তন' : 'Toggle status') . '">'
-            . '<span class="bx-switch-dot"></span><span>' . ($isActive ? ($lang === 'bn' ? 'সক্রিয়' : 'Active') : ($lang === 'bn' ? 'লুকানো' : 'Hidden')) . '</span>'
+            . '<span class="bx-switch-dot"></span><span class="bx-switch-label">' . ($isActive ? ($lang === 'bn' ? 'সক্রিয়' : 'Active') : ($lang === 'bn' ? 'লুকানো' : 'Hidden')) . '</span>'
             . '</button></form>';
 
-        echo '<a href="' . e(url('/admin/folders?add_parent=' . $fid . '#folder-form-sheet')) . '" class="bx-btn bx-btn-ghost" style="min-height:40px;padding:6px 10px;font-size:0.8rem;" title="' . e($lang === 'bn' ? 'এখানে সাব-ফোল্ডার যোগ করুন' : 'Add subfolder here') . '">+ ' . ($lang === 'bn' ? 'সাব' : 'Sub') . '</a>';
+        echo '<a href="' . e(url('/admin/folders?add_parent=' . $fid . '#folder-form-sheet')) . '" class="bx-btn bx-btn-ghost bx-tree-sub-btn" style="min-height:40px;padding:6px 10px;font-size:0.8rem;" title="' . e($lang === 'bn' ? 'এখানে সাব-ফোল্ডার যোগ করুন' : 'Add subfolder here') . '">+ ' . ($lang === 'bn' ? 'সাব' : 'Sub') . '</a>';
 
         echo '<div class="bx-kebab-wrap">';
         echo '<button type="button" class="bx-kebab-btn" data-kebab-toggle aria-label="Folder Actions" style="min-height:40px;">⋮</button>';
@@ -104,6 +125,7 @@ $renderTree = function (int $parentId, int $depth = 0) use (&$renderTree, $byPar
         echo '<form method="post" action="' . e(url('/admin/folders')) . '" data-confirm-msg="' . e($confirmDel) . '">' . csrf_field() . '<input type="hidden" name="action" value="delete_folder"><input type="hidden" name="id" value="' . $fid . '"><input type="hidden" name="_return" value="' . e($returnUrl) . '"><button type="submit" class="bx-btn bx-btn-ghost" style="color:var(--rose-text);">✕ ' . ($lang === 'bn' ? 'মুছুন' : 'Delete') . '</button></form>';
         echo '</div></div></div>';
         echo '</div>';
+        echo '</div>';
 
         if ($hasChildren) {
             $renderTree($fid, $depth + 1);
@@ -119,9 +141,10 @@ $renderTree = function (int $parentId, int $depth = 0) use (&$renderTree, $byPar
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
         <div>
             <h2 style="margin:0;font-size:1.12rem;font-family:var(--font-serif);"><?= $lang === 'bn' ? 'ফোল্ডার ট্রি' : 'Folder Hierarchy Tree' ?></h2>
-            <small style="color:var(--text-muted);"><?= $lang === 'bn' ? 'টেনে বা ⋮ মেনু থেকে সাজান ও সাব-ফোল্ডার যোগ করুন।' : 'Drag handle or open ⋮ menu to edit, add subfolder here, or reorder.' ?></small>
+            <small style="color:var(--text-muted);"><?= $lang === 'bn' ? 'সাজাতে Reorder মোড চালু করুন অথবা ⋮ মেনু ব্যবহার করুন।' : 'Enable Reorder mode to drag, or open ⋮ menu to move up/down & edit.' ?></small>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button type="button" id="btn-toggle-reorder" class="bx-btn bx-btn-outline" data-reorder-toggle aria-pressed="false" style="padding:8px 12px;font-size:0.84rem;">⇅ <?= $lang === 'bn' ? 'রিঅর্ডার মোড' : 'Reorder' ?></button>
             <button type="button" id="btn-expand-all" class="bx-btn bx-btn-ghost" style="padding:8px 12px;font-size:0.84rem;"><?= $lang === 'bn' ? 'সব খুলুন' : 'Expand All' ?></button>
             <button type="button" id="btn-collapse-all" class="bx-btn bx-btn-ghost" style="padding:8px 12px;font-size:0.84rem;"><?= $lang === 'bn' ? 'সব গুটিয়ে নিন' : 'Collapse All' ?></button>
             <button type="button" class="bx-btn bx-btn-primary" data-open-sheet="folder-form-sheet">+ <?= $lang === 'bn' ? 'নতুন ফোল্ডার' : 'Create Folder' ?></button>
@@ -205,14 +228,87 @@ $renderTree = function (int $parentId, int $depth = 0) use (&$renderTree, $byPar
 
                 <div class="bx-grid-2" style="gap:12px;margin-bottom:12px;">
                     <div>
-                        <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'বিবরণ (বাংলা)' : 'Description (Bangla)' ?></label>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'সংক্ষিপ্ত বিবরণ (বাংলা)' : 'Short Description (Bangla)' ?></label>
                         <textarea name="description_bn" class="bx-input" rows="2"><?= e((string) ($editFolder['description_bn'] ?? '')) ?></textarea>
                     </div>
                     <div>
-                        <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'বিবরণ (ইংরেজি)' : 'Description (English)' ?></label>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'সংক্ষিপ্ত বিবরণ (ইংরেজি)' : 'Short Description (English)' ?></label>
                         <textarea name="description_en" class="bx-input" rows="2"><?= e((string) ($editFolder['description_en'] ?? '')) ?></textarea>
                     </div>
                 </div>
+
+                <?php
+                $editRootWords = 0;
+                if ($editFolder && $editFolder['parent_id'] === null) {
+                    $editRootWords = content_word_count((string) ($editFolder['intro_bn'] ?: $editFolder['intro_en'] ?: $editFolder['description_bn'] ?: $editFolder['description_en'] ?: ''));
+                }
+                ?>
+                <?php if ($editFolder && $editFolder['parent_id'] === null && $editRootWords < 150): ?>
+                    <div class="bx-alert bx-alert-warning" style="margin-bottom:12px;font-size:0.88rem;">
+                        <?= $lang === 'bn'
+                            ? "সতর্কতা: মূল ফোল্ডারে ইউনিক টেক্সট ১৫০ শব্দের কম ({$editRootWords} শব্দ)। ভালো SEO র‍্যাংকিংয়ের জন্য নিচে ১00–300 শব্দের পরিচিতি যোগ করুন।"
+                            : "Thin Content Warning: Top-level folder has {$editRootWords} words (< 150 words). Add a 100-300 word editorial intro below." ?>
+                    </div>
+                <?php endif; ?>
+
+                <details style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-alt);" <?= ($editFolder && (!empty($editFolder['intro_bn']) || !empty($editFolder['who_for_bn']) || $editRootWords < 150)) ? 'open' : '' ?>>
+                    <summary style="cursor:pointer;font-weight:700;font-size:0.9rem;">
+                        <?= $lang === 'bn' ? 'ফোল্ডার ল্যান্ডিং কনটেন্ট, লক্ষ্য পাঠক ও FAQ (১০০–৩০০ শব্দ)' : 'Folder Landing Content (100-300 words Intro, Audience & FAQs)' ?>
+                    </summary>
+                    <div style="margin-top:10px;display:flex;flex-direction:column;gap:10px;">
+                        <div class="bx-grid-2" style="gap:10px;">
+                            <div>
+                                <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;"><?= $lang === 'bn' ? 'সংক্ষিপ্ত উত্তর (বাংলা — ৪০–৬০ শব্দ, AI ও দ্রুত উত্তরের জন্য)' : 'Short Direct Answer (Bangla, ~40-60 words)' ?></label>
+                                <textarea name="short_answer_bn" rows="2" class="bx-input" placeholder="<?= $lang === 'bn' ? 'ফোল্ডারটি কী বিষয়ের এবং কাদের জন্য — ২-৩ বাক্যে উত্তর' : 'Direct 40-60 word answer in Bangla' ?>"><?= e((string) ($editFolder['short_answer_bn'] ?? '')) ?></textarea>
+                            </div>
+                            <div>
+                                <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">Short Direct Answer (English, ~40-60 words)</label>
+                                <textarea name="short_answer_en" rows="2" class="bx-input" placeholder="Direct 40-60 word answer shown under the H1 heading"><?= e((string) ($editFolder['short_answer_en'] ?? '')) ?></textarea>
+                            </div>
+                        </div>
+                        <div>
+                            <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">Landing Intro (Bangla)</label>
+                            <textarea name="intro_bn" rows="4" class="bx-input" data-rich-editor><?= e((string) ($editFolder['intro_bn'] ?? '')) ?></textarea>
+                        </div>
+                        <div>
+                            <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">Landing Intro (English)</label>
+                            <textarea name="intro_en" rows="4" class="bx-input" data-rich-editor><?= e((string) ($editFolder['intro_en'] ?? '')) ?></textarea>
+                        </div>
+                        <div class="bx-grid-2" style="gap:10px;">
+                            <div>
+                                <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">Who Is This For (Bangla)</label>
+                                <textarea name="who_for_bn" rows="2" class="bx-input"><?= e((string) ($editFolder['who_for_bn'] ?? '')) ?></textarea>
+                            </div>
+                            <div>
+                                <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">Who Is This For (English)</label>
+                                <textarea name="who_for_en" rows="2" class="bx-input"><?= e((string) ($editFolder['who_for_en'] ?? '')) ?></textarea>
+                            </div>
+                        </div>
+                        <?php $folderFaqs = $editFolder ? content_parse_faqs_json($editFolder['faqs_json'] ?? null) : []; ?>
+                        <div data-faq-wrap>
+                            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                                <strong style="font-size:0.84rem;">Folder FAQs</strong>
+                                <button type="button" class="bx-btn bx-btn-outline bx-btn-sm" data-faq-add>+ Add FAQ</button>
+                            </div>
+                            <div data-faq-list>
+                                <?php foreach ($folderFaqs as $fq): ?>
+                                    <div class="bx-faq-edit-row" data-faq-row="1">
+                                        <div class="bx-grid-2" style="gap:8px;margin-bottom:6px;">
+                                            <input type="text" name="faq_q_bn[]" class="bx-input" value="<?= e($fq['q_bn']) ?>" placeholder="প্রশ্ন (বাংলা)">
+                                            <input type="text" name="faq_q_en[]" class="bx-input" value="<?= e($fq['q_en']) ?>" placeholder="Question (English)">
+                                        </div>
+                                        <div class="bx-grid-2" style="gap:8px;margin-bottom:6px;">
+                                            <textarea name="faq_a_bn[]" rows="2" class="bx-input" placeholder="উত্তর (বাংলা)"><?= e($fq['a_bn']) ?></textarea>
+                                            <textarea name="faq_a_en[]" rows="2" class="bx-input" placeholder="Answer (English)"><?= e($fq['a_en']) ?></textarea>
+                                        </div>
+                                        <input type="text" name="faq_url[]" class="bx-input" style="margin-bottom:6px;" value="<?= e((string) ($fq['url'] ?? '')) ?>" placeholder="Optional link path (e.g. /faq or /guides/...)">
+                                        <button type="button" class="bx-btn bx-btn-ghost bx-btn-sm" data-faq-remove style="color:var(--rose-text);">Remove FAQ</button>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
+                </details>
 
                 <details style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-alt);">
                     <summary style="cursor:pointer;font-weight:700;font-size:0.9rem;"><?= $lang === 'bn' ? 'SEO মেটাডাটা (ঐচ্ছিক — স্বয়ংক্রিয় ফলব্যাক আছে)' : 'SEO Metadata (Optional — auto-fallback if blank)' ?></summary>

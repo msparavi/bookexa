@@ -21,7 +21,7 @@ $reviewsList = db_all(
 );
 $lang = current_lang();
 
-$cover = !empty($item['cover']) ? asset($item['cover']) : asset('uploads/covers/cover-bangla.svg');
+$coverRel = !empty($item['cover']) ? (string) $item['cover'] : 'uploads/covers/cover-bangla.svg';
 $breadcrumbs = $item['folder_id'] ? folder_breadcrumbs((int) $item['folder_id']) : [];
 
 $related = $item['folder_id']
@@ -58,9 +58,14 @@ try {
     </nav>
 
     <div class="bx-detail-grid">
-        <div class="bx-detail-stage">
+        <figure class="bx-detail-stage" style="margin:0;">
             <div class="bx-detail-book-3d">
-                <img src="<?= e($cover) ?>" alt="<?= e(bi($item, 'title')) ?>" width="400" height="600" decoding="async">
+                <?= render_responsive_picture($coverRel, bi($item, 'title'), [
+                    'width'  => 400,
+                    'height' => 600,
+                    'sizes'  => '(max-width: 768px) 72vw, 340px',
+                    'is_lcp' => true,
+                ]) ?>
                 <button type="button"
                         class="bx-wish-btn bx-detail-wish<?= $isWished ? ' active' : '' ?>"
                         data-wish-btn
@@ -68,7 +73,8 @@ try {
                         aria-pressed="<?= $isWished ? 'true' : 'false' ?>"
                         aria-label="<?= e($lang === 'bn' ? 'পছন্দের তালিকায় রাখুন' : 'Toggle wishlist') ?>"><?= icon('heart') ?></button>
             </div>
-        </div>
+            <figcaption class="bx-muted" style="font-size:0.78rem;text-align:center;margin-top:8px;"><?= e(bi($item, 'title')) ?></figcaption>
+        </figure>
 
         <div class="bx-card bx-detail-info-card">
             <div>
@@ -80,10 +86,29 @@ try {
                 </h1>
                 <?php if (bi($item, 'author') !== ''): ?>
                     <p class="bx-muted" style="margin:0;font-weight:600;">
-                        <?= e(t('author_label')) ?>: <?= e(bi($item, 'author')) ?>
+                        <?= e(t('author_label')) ?>:
+                        <?php $aSlugLink = slugify((string) ($item['author_en'] ?: $item['author_bn'])); ?>
+                        <a href="<?= e(url('/authors/' . rawurlencode($aSlugLink))) ?>" style="color:var(--primary);text-decoration:underline;"><?= e(bi($item, 'author')) ?></a>
                     </p>
                 <?php endif; ?>
+                <?php
+                $pubFmt = num_localize(date('d M Y', strtotime((string) ($item['publish_at'] ?: $item['created_at'] ?: 'now')) ?: time()));
+                $updFmt = num_localize(date('d M Y', strtotime((string) ($item['updated_at'] ?: $item['created_at'] ?: 'now')) ?: time()));
+                ?>
+                <p class="bx-muted" style="margin:6px 0 0;font-size:0.8rem;">
+                    <span><?= $lang === 'bn' ? 'প্রকাশ:' : 'Published:' ?> <?= e($pubFmt) ?></span>
+                    ·
+                    <span><strong><?= $lang === 'bn' ? 'হালনাগাদ:' : 'Updated:' ?></strong> <?= e($updFmt) ?></span>
+                </p>
             </div>
+
+            <?php $bookAns = aeo_short_answer($item, bi($item, 'description')); ?>
+            <?php if ($bookAns !== ''): ?>
+                <div class="bx-answer-box">
+                    <span class="bx-answer-kicker"><?= $lang === 'bn' ? 'সংক্ষিপ্ত পরিচিতি' : 'Quick Summary' ?></span>
+                    <p><?= e($bookAns) ?></p>
+                </div>
+            <?php endif; ?>
 
             <div class="bx-meta-pills">
                 <span class="bx-meta-pill">
@@ -99,6 +124,18 @@ try {
                 </span>
                 <?php if (!empty($item['total_pages'])): ?>
                     <span class="bx-meta-pill"><?= icon('layers') ?> <?= e(num_localize((int) $item['total_pages'])) ?> <?= e(t('pages_label')) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($item['isbn'])): ?>
+                    <span class="bx-meta-pill">ISBN: <?= e((string) $item['isbn']) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($item['publisher'])): ?>
+                    <span class="bx-meta-pill"><?= e((string) $item['publisher']) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($item['edition'])): ?>
+                    <span class="bx-meta-pill"><?= e((string) $item['edition']) ?></span>
+                <?php endif; ?>
+                <?php if (!empty($item['book_language'])): ?>
+                    <span class="bx-meta-pill"><?= e((string) $item['book_language']) ?></span>
                 <?php endif; ?>
                 <?php if ((int) $item['sample_pages'] > 0): ?>
                     <span class="bx-meta-pill"><?= icon('eye') ?> <?= e(t('sample_label')) ?>: <?= e(t('first_n_pages', num_localize((int) $item['sample_pages']))) ?></span>
@@ -117,48 +154,134 @@ try {
 
             <div class="bx-detail-actions">
                 <?php if ($isFree || $isOwned): ?>
-                    <a href="<?= e($readUrl) ?>" class="bx-btn bx-btn-primary">
+                    <a href="<?= e($readUrl) ?>" class="bx-btn bx-btn-primary bx-cta-primary">
                         <?= icon('book') ?> <?= e(t('read_now_btn')) ?>
                     </a>
                 <?php elseif ($pendingOrder): ?>
-                    <span class="bx-badge bx-badge-gold" style="padding:10px 16px;font-size:0.9rem;">
+                    <span class="bx-badge bx-badge-gold bx-cta-pending" style="padding:10px 14px;font-size:0.88rem;">
                         <?= current_lang() === 'bn' ? 'পেমেন্ট যাচাই চলছে' : 'Verification Pending' ?> (#<?= e($pendingOrder['order_code']) ?>)
                     </span>
                 <?php else: ?>
-                    <a href="<?= e($buyUrl) ?>" class="bx-btn bx-btn-accent">
-                        <?= icon('lock') ?> <?= e(t('buy_now_btn')) ?> — <?= e(format_bdt((float) $item['price'])) ?>
+                    <?php $priceText = format_bdt((float) $item['price']); ?>
+                    <a href="<?= e($buyUrl) ?>" class="bx-btn bx-btn-accent bx-cta-primary">
+                        <?= icon('lock') ?>
+                        <span class="bx-cta-long"><?= e(t('buy_now_btn')) ?> — <?= e($priceText) ?></span>
+                        <span class="bx-cta-short"><?= e($lang === 'bn' ? 'কিনুন' : 'Buy') ?> <?= e($priceText) ?></span>
                     </a>
                 <?php endif; ?>
 
                 <?php if ((int) $item['sample_pages'] > 0 && !$isFree && !$isOwned): ?>
-                    <a href="<?= e($sampleUrl) ?>" class="bx-btn bx-btn-outline">
-                        <?= icon('eye') ?> <?= e(t('read_sample_btn')) ?>
+                    <a href="<?= e($sampleUrl) ?>" class="bx-btn bx-btn-outline bx-cta-sample">
+                        <?= icon('eye') ?>
+                        <span class="bx-cta-long"><?= e(t('read_sample_btn')) ?></span>
+                        <span class="bx-cta-short"><?= e($lang === 'bn' ? 'ফ্রি স্যাম্পল' : 'Free sample') ?></span>
                     </a>
                 <?php endif; ?>
             </div>
 
-            <?php
-            $shareAbsUrl = absolute_url_for_lang('/book/' . rawurlencode($item['slug']), $lang);
-            $shareTitle  = bi($item, 'title');
-            $waShareUrl  = 'https://wa.me/?text=' . rawurlencode($shareTitle . ' — ' . $shareAbsUrl);
-            $fbShareUrl  = 'https://www.facebook.com/sharer/sharer.php?u=' . rawurlencode($shareAbsUrl);
-            ?>
-            <div class="bx-share-bar" aria-label="<?= e($lang === 'bn' ? 'শেয়ার করুন' : 'Share this book') ?>">
-                <span class="bx-share-label"><?= $lang === 'bn' ? 'শেয়ার করুন:' : 'Share:' ?></span>
-                <a href="<?= e($waShareUrl) ?>" target="_blank" rel="noopener noreferrer" class="bx-btn bx-btn-ghost bx-btn-sm">
-                    WhatsApp
-                </a>
-                <a href="<?= e($fbShareUrl) ?>" target="_blank" rel="noopener noreferrer" class="bx-btn bx-btn-ghost bx-btn-sm">
-                    Facebook
-                </a>
-                <button type="button" class="bx-btn bx-btn-ghost bx-btn-sm"
-                        data-copy-link="<?= e($shareAbsUrl) ?>"
-                        data-copied-label="<?= e($lang === 'bn' ? 'লিংক কপি হয়েছে!' : 'Link copied!') ?>">
-                    <?= $lang === 'bn' ? 'লিংক কপি' : 'Copy Link' ?>
-                </button>
-            </div>
+            <?= render_social_share_bar(
+                absolute_url_for_lang('/book/' . rawurlencode((string) $item['slug']), $lang),
+                bi($item, 'title'),
+                $lang === 'bn' ? 'শেয়ার করুন:' : 'Share:'
+            ) ?>
         </div>
     </div>
+
+    <!-- Structured Book Description: Learnings, Audience, PDF Outline TOC, Sample Thumbnails & FAQs (Zero protected text exposed) -->
+    <?php
+    $whatLearnRaw = trim($lang === 'bn' ? (string) ($item['what_you_learn_bn'] ?: $item['what_you_learn_en'] ?? '') : (string) ($item['what_you_learn_en'] ?: $item['what_you_learn_bn'] ?? ''));
+    $learnItems = $whatLearnRaw !== '' ? array_values(array_filter(array_map('trim', preg_split('/\R/u', $whatLearnRaw) ?: []))) : [];
+    $whoForBook = trim($lang === 'bn' ? (string) ($item['who_for_bn'] ?: $item['who_for_en'] ?? '') : (string) ($item['who_for_en'] ?: $item['who_for_bn'] ?? ''));
+    $tocChapters = !empty($tocChapters) && is_array($tocChapters) ? $tocChapters : [];
+    $bookFaqs = !empty($item['faqs_json']) ? content_parse_faqs_json($item['faqs_json']) : [];
+    $bookTags = !empty($item['tags']) ? content_parse_tags($item['tags']) : [];
+    $sampleThumbPages = !empty($sampleThumbPages) ? $sampleThumbPages : [];
+    ?>
+    <?php if ($learnItems || $whoForBook !== '' || $tocChapters || $sampleThumbPages || $bookFaqs || $bookTags): ?>
+        <section class="bx-section">
+            <div class="bx-card" style="padding:22px;display:flex;flex-direction:column;gap:18px;">
+                <?php if ($learnItems): ?>
+                    <div>
+                        <h2 class="bx-h2" style="font-size:1.2rem;margin:0 0 10px;"><?= $lang === 'bn' ? 'এই বই থেকে কী শিখবেন?' : 'What You Will Learn' ?></h2>
+                        <ul style="margin:0;padding-left:20px;line-height:1.7;">
+                            <?php foreach ($learnItems as $li): ?>
+                                <li><?= e($li) ?></li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($whoForBook !== ''): ?>
+                    <div style="padding:12px 16px;border-radius:var(--radius-sm);background:var(--bg-alt);border-left:4px solid var(--teal);">
+                        <strong style="display:block;margin-bottom:4px;"><?= $lang === 'bn' ? 'কাদের জন্য এই বই?' : 'Who Is This Book For?' ?></strong>
+                        <p class="bx-muted" style="margin:0;line-height:1.65;"><?= e($whoForBook) ?></p>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($tocChapters): ?>
+                    <div>
+                        <h2 class="bx-h2" style="font-size:1.2rem;margin:0 0 10px;"><?= $lang === 'bn' ? 'বইয়ের সূচিপত্র (অধ্যায় তালিকা)' : 'Table of Contents' ?></h2>
+                        <ul style="margin:0;padding-left:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:6px 18px;">
+                            <?php foreach (array_slice($tocChapters, 0, 24) as $ch): ?>
+                                <li>
+                                    <?= e((string) ($ch['title'] ?? $ch['name'] ?? '')) ?>
+                                    <?php if (!empty($ch['page'])): ?>
+                                        <small class="bx-muted">(<?= $lang === 'bn' ? 'পৃষ্ঠা ' : 'p.' ?><?= e(num_localize((int) $ch['page'])) ?>)</small>
+                                    <?php endif; ?>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($sampleThumbPages): ?>
+                    <div>
+                        <h2 class="bx-h2" style="font-size:1.2rem;margin:0 0 10px;"><?= $lang === 'bn' ? 'নমুনা পৃষ্ঠার প্রিভিউ' : 'Sample Page Previews' ?></h2>
+                        <div class="bx-sample-thumbs">
+                            <?php foreach ($sampleThumbPages as $spNum): ?>
+                                <a href="<?= e($sampleUrl) ?>" class="bx-sample-thumb">
+                                    <img src="<?= e(url('/sample-thumb/' . rawurlencode((string) $item['slug']) . '/' . (int) $spNum)) ?>"
+                                         alt="<?= e(bi($item, 'title') . ' Sample Page ' . $spNum) ?>" width="340" height="450" loading="lazy">
+                                    <span style="display:block;padding:6px;"><?= $lang === 'bn' ? 'পৃষ্ঠা ' . num_localize((int) $spNum) : 'Page ' . (int) $spNum ?></span>
+                                </a>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($bookTags): ?>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                        <span class="bx-muted" style="font-size:0.84rem;font-weight:600;"><?= $lang === 'bn' ? 'ট্যাগ:' : 'Tags:' ?></span>
+                        <?php foreach ($bookTags as $bt): ?>
+                            <a href="<?= e(url('/search?q=' . rawurlencode($bt))) ?>" class="bx-chip" style="text-decoration:none;">#<?= e($bt) ?></a>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+
+                <?php if ($bookFaqs): ?>
+                    <div>
+                        <h2 class="bx-h2" style="font-size:1.2rem;margin:0 0 10px;"><?= $lang === 'bn' ? 'বই সম্পর্কিত প্রশ্নোত্তর (FAQ)' : 'Book FAQs' ?></h2>
+                        <?php foreach ($bookFaqs as $fq): ?>
+                            <?php $qt = $lang === 'bn' ? ($fq['q_bn'] ?: $fq['q_en']) : ($fq['q_en'] ?: $fq['q_bn']); ?>
+                            <?php $at = $lang === 'bn' ? ($fq['a_bn'] ?: $fq['a_en']) : ($fq['a_en'] ?: $fq['a_bn']); ?>
+                            <?php $fqUrl = trim((string) ($fq['url'] ?? '')); ?>
+                            <?php if ($qt !== ''): ?>
+                                <details class="bx-faq-item" open>
+                                    <summary><?= e($qt) ?></summary>
+                                    <p>
+                                        <?= e($at) ?>
+                                        <?php if ($fqUrl !== ''): ?>
+                                            <a href="<?= e(str_starts_with($fqUrl, 'http') ? $fqUrl : url($fqUrl)) ?>" style="display:inline-block;margin-left:6px;font-weight:700;color:var(--primary);"><?= $lang === 'bn' ? 'বিস্তারিত →' : 'Learn more →' ?></a>
+                                        <?php endif; ?>
+                                    </p>
+                                </details>
+                            <?php endif; ?>
+                        <?php endforeach; ?>
+                    </div>
+                <?php endif; ?>
+            </div>
+        </section>
+    <?php endif; ?>
 
     <section class="bx-section" id="reviews">
         <div class="bx-reviews-grid">
@@ -241,6 +364,17 @@ try {
             <div class="bx-book-grid">
                 <?php foreach ($related as $rel): ?>
                     <?= render_book_card($rel) ?>
+                <?php endforeach; ?>
+            </div>
+        </section>
+    <?php endif; ?>
+
+    <?php if (!empty($relatedByTag)): ?>
+        <section class="bx-section">
+            <h2 class="bx-h2" style="margin-bottom:18px;"><?= $lang === 'bn' ? 'একই বিষয়ের অন্যান্য বই (ট্যাগ অনুযায়ী)' : 'Related Books by Topic Tag' ?></h2>
+            <div class="bx-book-grid">
+                <?php foreach ($relatedByTag as $relT): ?>
+                    <?= render_book_card($relT) ?>
                 <?php endforeach; ?>
             </div>
         </section>

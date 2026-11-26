@@ -54,7 +54,7 @@ final class BdGatewaySkeletonDriver implements PaymentGatewayInterface
         if ($this->apiSecret !== '') {
             return $this->apiSecret;
         }
-        return (string) app_config('security.app_secret', 'bookexa_gw_fallback');
+        return app_secret();
     }
 
     public function create(array $order, array $item, array $user): array

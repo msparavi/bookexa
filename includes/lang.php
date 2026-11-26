@@ -12,6 +12,8 @@ function get_default_language_strings(): array
         'meta_default_desc'    => ['bn' => 'Bookexa-তে একাডেমিক, চাকরি, ভর্তি ও সৃজনশীল ডিজিটাল বই ও পিডিএফ পড়ুন নিরাপদ রিডারে।', 'en' => 'Explore academic, job prep, admission, and creative PDFs & books on Bookexa.'],
         'nav_home'             => ['bn' => 'হোম', 'en' => 'Home'],
         'nav_pdfs'             => ['bn' => 'পিডিএফ সংগ্রহ', 'en' => 'PDFs'],
+        'nav_guides'           => ['bn' => 'স্টাডি গাইড', 'en' => 'Guides'],
+        'nav_authors'          => ['bn' => 'লেখকবৃন্দ', 'en' => 'Authors'],
         'nav_shop'             => ['bn' => 'শপিং', 'en' => 'Shop'],
         'nav_about'            => ['bn' => 'আমাদের সম্পর্কে', 'en' => 'About'],
         'nav_contact'          => ['bn' => 'যোগাযোগ', 'en' => 'Contact'],
@@ -27,9 +29,9 @@ function get_default_language_strings(): array
         'portal_pdf_title'     => ['bn' => 'PDF / ই-বুক', 'en' => 'PDF / e-Book'],
         'portal_pdf_desc'      => ['bn' => 'একাডেমিক নোট, চাকরি, ভর্তি প্রস্তুতি ও ড্রয়িং পিডিএফ ব্রাউজ করুন এবং নিরাপদ রিডারে পড়ুন।', 'en' => 'Browse academic notes, job prep, admission & drawing PDFs in our secure viewer.'],
         'portal_pdf_cta'       => ['bn' => 'ফোল্ডার ব্রাউজ করুন', 'en' => 'Browse Folders'],
-        'portal_shop_title'    => ['bn' => 'শপিং', 'en' => 'Shopping'],
-        'portal_shop_desc'     => ['bn' => 'প্রিন্টেড বই, নোটবুক ও স্টাডি কিট সংগ্রহ দেখুন — শীঘ্রই সম্পূর্ণ শপ আসছে।', 'en' => 'Explore printed books, study notebooks & kits — full store coming soon.'],
-        'portal_shop_cta'      => ['bn' => 'শপ দেখুন', 'en' => 'Explore Shop'],
+        'portal_shop_title'    => ['bn' => 'শপিং', 'en' => 'Book Shop'],
+        'portal_shop_desc'     => ['bn' => 'প্রিন্টেড বই, নোটবুক ও স্টাডি কিট সংগ্রহ করুন — দ্রুত ক্যাশ অন ডেলিভারি ও অনলাইন পেমেন্ট সুবিধা।', 'en' => 'Order printed books, notebooks & study kits with fast cash on delivery or mobile payment.'],
+        'portal_shop_cta'      => ['bn' => 'শপ দেখুন', 'en' => 'Browse Shop'],
         'featured_folders'     => ['bn' => 'জনপ্রিয় বিষয় ও ফোল্ডার', 'en' => 'Featured Folders'],
         'featured_folders_sub' => ['bn' => 'যেকোনো ফোল্ডার খুলে ভেতরের অধ্যায় ও পিডিএফ দেখুন', 'en' => 'Open any folder to explore nested topics and PDFs'],
         'newest_pdfs'          => ['bn' => 'সর্বশেষ যুক্ত পিডিএফ', 'en' => 'Newest PDFs'],
@@ -64,9 +66,11 @@ function get_default_language_strings(): array
         'view_details'         => ['bn' => 'বিস্তারিত', 'en' => 'Details'],
 
         // Shop, Search, About, Contact, 404
-        'shop_title'           => ['bn' => 'Bookexa শপ (প্রিভিউ)', 'en' => 'Bookexa Shop (Preview)'],
-        'shop_sub'             => ['bn' => 'প্রিন্টেড বই, স্টাডি নোটবুক ও ড্রয়িং কিটের কাঠামোগত প্রিভিউ। পূর্ণাঙ্গ ই-কমার্স চেকআউট শীঘ্রই যুক্ত হবে।', 'en' => 'Structured preview for printed books, study notebooks, and drawing kits. Full shopping checkout coming soon.'],
-        'shop_badge'           => ['bn' => 'শপ প্রিভিউ', 'en' => 'Shop Preview'],
+        'shop_title'           => ['bn' => 'Bookexa শপ', 'en' => 'Bookexa Shop'],
+        'shop_sub'             => ['bn' => 'প্রিন্টেড বই, একাডেমিক গাইড ও স্টাডি কিট অর্ডার করুন সারা বাংলাদেশে হোম ডেলিভারিতে।', 'en' => 'Order printed books, academic guides, and study kits with fast home delivery across Bangladesh.'],
+        'shop_badge'           => ['bn' => 'প্রিন্টেড শপ', 'en' => 'Book Store'],
+        'nav_cart'             => ['bn' => 'কার্ট', 'en' => 'Cart'],
+        'nav_track_order'      => ['bn' => 'অর্ডার ট্র্যাক', 'en' => 'Track Order'],
         'search_title'         => ['bn' => 'অনুসন্ধান', 'en' => 'Search'],
         'search_empty'         => ['bn' => 'আপনার খোঁজা শব্দে কোনো ফোল্ডার বা পিডিএফ পাওয়া যায়নি।', 'en' => 'No matching folders or PDFs were found for your query.'],
         'about_title'          => ['bn' => 'Bookexa সম্পর্কে', 'en' => 'About Bookexa'],
@@ -84,16 +88,27 @@ function get_default_language_strings(): array
         'legal_privacy'        => ['bn' => 'গোপনীয়তা', 'en' => 'Privacy'],
         'legal_refund'         => ['bn' => 'রিফান্ড নীতি', 'en' => 'Refund Policy'],
         'legal_copyright'      => ['bn' => 'কপিরাইট ও ওয়াটারমার্ক', 'en' => 'Copyright & Watermark'],
+        'legal_editorial'      => ['bn' => 'সম্পাদকীয় নীতিমালা', 'en' => 'Editorial Policy'],
+        'legal_review_policy'  => ['bn' => 'বই পর্যালোচনা নীতি', 'en' => 'How We Review Books'],
+        'legal_corrections'    => ['bn' => 'সংশোধনী নীতি', 'en' => 'Corrections Policy'],
+        'nav_faq'              => ['bn' => 'প্রশ্নোত্তর (FAQ)', 'en' => 'FAQ'],
     ];
 }
 
 function is_bilingual_public_route(string $logicalPath): bool
 {
     $p = '/' . ltrim($logicalPath, '/');
-    if ($p === '/' || $p === '/pdf' || $p === '/shop' || $p === '/search' || $p === '/about' || $p === '/contact' || $p === '/terms' || $p === '/privacy' || $p === '/refund-policy' || $p === '/copyright') {
+    if (in_array($p, ['/', '/pdf', '/shop', '/guides', '/authors', '/faq', '/search', '/about', '/contact', '/terms', '/privacy', '/refund-policy', '/copyright', '/editorial-policy', '/how-we-review', '/corrections-policy', '/feed.xml', '/atom.xml', '/llms.txt', '/llms-full.txt'], true)) {
         return true;
     }
-    return str_starts_with($p, '/pdf/') || str_starts_with($p, '/book/') || str_starts_with($p, '/shop/');
+    return str_starts_with($p, '/pdf/')
+        || str_starts_with($p, '/book/')
+        || str_starts_with($p, '/shop/')
+        || str_starts_with($p, '/guides/')
+        || str_starts_with($p, '/guide/')
+        || str_starts_with($p, '/authors/')
+        || str_starts_with($p, '/author/')
+        || str_starts_with($p, '/hub/');
 }
 
 function handle_language_switch(): void
@@ -121,6 +136,12 @@ function handle_language_switch(): void
             'httponly' => false,
             'samesite' => 'Lax',
         ]);
+        $redirParam = $_GET['redirect'] ?? $_GET['return'] ?? $_GET['next'] ?? null;
+        if (is_string($redirParam) && $redirParam !== '') {
+            $safeTarget = safe_internal_path($redirParam, '/');
+            header('Location: ' . BASE_PATH . $safeTarget);
+            exit;
+        }
         return;
     }
 

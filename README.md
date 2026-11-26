@@ -2,6 +2,34 @@
 
 Plain **PHP 8 + MySQL (PDO) + HTML5 + CSS3 + Vanilla JS** platform with unlimited nested folders, bilingual Bangla/English UI, manual bKash/Nagad/Rocket verification, and a hardened server-streamed PDF.js canvas reader.
 
+## Documentation
+
+- [Installation Guide (cPanel & XAMPP)](docs/INSTALL.md)
+- [Admin Guide (Bangla & English)](docs/ADMIN_GUIDE.md)
+- [Security Architecture](docs/SECURITY.md) & [Root Security Policy](SECURITY.md)
+- [Privacy & Retention Notes](docs/PRIVACY.md)
+- [FAQ & Troubleshooting](docs/FAQ.md)
+- [Changelog](CHANGELOG.md)
+
+## Automated Tests
+
+```bash
+php tests/run.php
+```
+
+Runs safe redirects, LIKE wildcard escaping, coupons, duplicate TrxID protection, order state transitions, signed reader tokens, rate limits, migrations, RBAC permission matrix, and clean package allowlist verification against MySQL.
+
+## LICENSE_TERMS
+
+Bookexa is licensed under a **Commercial Single-Domain License** (see full terms in [`LICENSE`](LICENSE)).
+
+- **Single Production Domain**: One license covers one (1) production domain (plus subdomains such as a static media CDN) and up to two (2) private local/staging environments.
+- **Unencrypted Source & No Phone-Home**: Delivered as 100% readable, unencrypted PHP, HTML, CSS, and JavaScript source code—no ionCube obfuscation and no remote license-check callbacks that could interrupt your live site.
+- **Full Content Ownership**: You retain full ownership of all uploaded PDFs, products, customers, and database records.
+- **Restrictions**: You may not resell, redistribute, publish, or deploy the source code on multiple unrelated client domains without separate licenses.
+
+---
+
 ## Local Setup (XAMPP on Windows)
 1. Start **Apache** and **MySQL** in XAMPP Control Panel.
 2. In **phpMyAdmin** (`http://localhost/phpmyadmin/`), create database `bookexa` (`utf8mb4_unicode_ci`) and import `database/bookexa.sql` (plus `database/demo_seed.sql` ONLY if you want local sample data).

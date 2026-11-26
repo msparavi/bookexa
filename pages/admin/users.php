@@ -24,8 +24,8 @@ if ($filter === 'active') {
 }
 
 if ($q !== '') {
-    $like = '%' . $q . '%';
-    $where[] = '(u.name LIKE ? OR u.email LIKE ? OR COALESCE(u.phone, "") LIKE ?)';
+    $like = '%' . escape_like($q) . '%';
+    $where[] = "(u.name LIKE ? ESCAPE '\\\\' OR u.email LIKE ? ESCAPE '\\\\' OR COALESCE(u.phone, \"\") LIKE ? ESCAPE '\\\\')";
     array_push($params, $like, $like, $like);
 }
 

@@ -4,15 +4,20 @@
 (function () {
     'use strict';
 
-    // 1. Dark / Light Theme Toggle (respects system preference on first visit)
     const root = document.documentElement;
-    const themeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
-    const savedTheme = localStorage.getItem('bookexa_theme');
-    if (savedTheme === 'dark' || savedTheme === 'light') {
-        root.setAttribute('data-theme', savedTheme);
-    } else if (themeQuery) {
-        root.setAttribute('data-theme', themeQuery.matches ? 'dark' : 'light');
+    const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const canHover = window.matchMedia && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    const drawer = document.getElementById('bx-drawer');
+    function scheduleIdle(fn) {
+        if ('requestIdleCallback' in window) {
+            window.requestIdleCallback(fn, { timeout: 1200 });
+        } else {
+            setTimeout(fn, 1);
+        }
     }
+
+    // Sync system preference changes passively
+    const themeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
     if (themeQuery && themeQuery.addEventListener) {
         themeQuery.addEventListener('change', (ev) => {
             if (!localStorage.getItem('bookexa_theme')) {
@@ -21,34 +26,80 @@
         });
     }
 
-    document.querySelectorAll('[data-theme-toggle]').forEach((btn) => {
-        btn.addEventListener('click', () => {
+    // Single delegated click handler for theme toggle, drawer, modals, notifications, toast & pw toggle
+    document.addEventListener('click', (e) => {
+        const tgl = e.target.closest('[data-theme-toggle]');
+        if (tgl) {
             const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
             root.setAttribute('data-theme', next);
             localStorage.setItem('bookexa_theme', next);
-        });
+            return;
+        }
+        if (e.target.closest('[data-drawer-open]')) {
+            if (drawer) drawer.classList.add('open');
+            return;
+        }
+        if (e.target.closest('[data-drawer-close]') || (drawer && e.target === drawer)) {
+            if (drawer) drawer.classList.remove('open');
+            return;
+        }
+        const mOpen = e.target.closest('[data-modal-open]');
+        if (mOpen) {
+            const modal = document.getElementById(mOpen.getAttribute('data-modal-open'));
+            if (modal) modal.classList.add('open');
+            return;
+        }
+        const mClose = e.target.closest('[data-modal-close]');
+        if (mClose) {
+            const bd = mClose.closest('.bx-modal-backdrop');
+            if (bd) bd.classList.remove('open');
+            return;
+        }
+        if (e.target.classList && e.target.classList.contains('bx-modal-backdrop')) {
+            e.target.classList.remove('open');
+            return;
+        }
+        const toastBtn = e.target.closest('[data-toast-trigger]');
+        if (toastBtn) {
+            window.bxToast(toastBtn.getAttribute('data-toast-trigger') || 'Bookexa notification!');
+            return;
+        }
+        const pwBtn = e.target.closest('[data-pw-toggle]');
+        if (pwBtn) {
+            const input = document.getElementById(pwBtn.getAttribute('data-pw-toggle') || '');
+            if (!input) return;
+            const reveal = input.type === 'password';
+            input.type = reveal ? 'text' : 'password';
+            pwBtn.setAttribute('aria-pressed', reveal ? 'true' : 'false');
+            pwBtn.setAttribute('aria-label', pwBtn.getAttribute(reveal ? 'data-label-hide' : 'data-label-show') || '');
+            const openIcon = pwBtn.querySelector('.bx-pw-eye-open');
+            const closedIcon = pwBtn.querySelector('.bx-pw-eye-closed');
+            if (openIcon && closedIcon) {
+                openIcon.hidden = reveal;
+                closedIcon.hidden = !reveal;
+            }
+            return;
+        }
+        if (e.target.closest('[data-folder-nav]')) {
+            const skel = document.getElementById('bx-folder-skeleton');
+            const content = document.getElementById('bx-folder-content');
+            if (skel && content) {
+                setTimeout(() => {
+                    content.style.display = 'none';
+                    skel.style.display = 'grid';
+                }, 120);
+            }
+        }
+        if (e.target.closest('[data-print-btn]')) {
+            window.print();
+        }
     });
 
-    // 2. Mobile Slide Drawer
-    const drawer = document.getElementById('bx-drawer');
-    document.querySelectorAll('[data-drawer-open]').forEach((btn) => {
-        btn.addEventListener('click', () => drawer && drawer.classList.add('open'));
-    });
-    document.querySelectorAll('[data-drawer-close]').forEach((btn) => {
-        btn.addEventListener('click', () => drawer && drawer.classList.remove('open'));
-    });
-    if (drawer) {
-        drawer.addEventListener('click', (e) => {
-            if (e.target === drawer) drawer.classList.remove('open');
-        });
-    }
-
-    // 3. CSS 3D Hover Tilt for Folder & Book Cards (Fine pointer / hover devices only)
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const canHover = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
     function attach3dTilt(selector, innerSelector) {
         if (reducedMotion || !canHover) return;
         document.querySelectorAll(selector).forEach((card) => {
+            if (card.dataset.tiltBound === '1') return;
+            card.dataset.tiltBound = '1';
             const inner = innerSelector ? card.querySelector(innerSelector) : card;
             if (!inner) return;
             card.addEventListener('mousemove', (e) => {
@@ -57,15 +108,13 @@
                 const y = (e.clientY - rect.top) / rect.height - 0.5;
                 inner.style.setProperty('--rx', (-y * 10).toFixed(2) + 'deg');
                 inner.style.setProperty('--ry', (x * 12).toFixed(2) + 'deg');
-            });
+            }, { passive: true });
             card.addEventListener('mouseleave', () => {
                 inner.style.setProperty('--rx', '0deg');
                 inner.style.setProperty('--ry', '0deg');
             });
         });
     }
-    attach3dTilt('.bx-folder-3d', '.bx-folder-inner');
-    attach3dTilt('.bx-book-3d', '.bx-book-card');
 
     // Real Wishlist Toggle (AJAX + CSRF; login required)
     const csrfMeta = document.querySelector('meta[name="bx-csrf"]')?.content || '';
@@ -85,51 +134,47 @@
         img.src = baseMeta + '/' + rel;
     }, true);
 
-    function bindWishButtons(rootEl) {
-        (rootEl || document).querySelectorAll('.bx-wish-btn[data-item-id]').forEach((btn) => {
-            if (btn.dataset.wishBound === '1') return;
-            btn.dataset.wishBound = '1';
-            btn.addEventListener('click', async (e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                const itemId = btn.getAttribute('data-item-id');
-                if (!itemId) return;
-                if (!loggedInMeta) {
-                    const next = window.location.pathname + window.location.search;
-                    window.location.href = baseMeta + '/login?next=' + encodeURIComponent(next);
-                    return;
-                }
-                btn.disabled = true;
-                try {
-                    const res = await fetch(baseMeta + '/api/wishlist-toggle', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                        body: new URLSearchParams({ _csrf: csrfMeta, item_id: itemId })
-                    });
-                    if (res.status === 401) {
-                        const next = window.location.pathname + window.location.search;
-                        window.location.href = baseMeta + '/login?next=' + encodeURIComponent(next);
-                        return;
-                    }
-                    const data = await res.json();
-                    if (data.ok) {
-                        document.querySelectorAll(`.bx-wish-btn[data-item-id="${itemId}"]`).forEach((el) => {
-                            el.classList.toggle('active', !!data.in_wishlist);
-                            el.setAttribute('aria-pressed', data.in_wishlist ? 'true' : 'false');
-                        });
-                        window.bxToast(data.message || (data.in_wishlist ? 'Saved to wishlist' : 'Removed from wishlist'));
-                    } else {
-                        window.bxToast(data.message || 'Could not update wishlist', 'danger');
-                    }
-                } catch (err) {
-                    window.bxToast('Network error updating wishlist', 'danger');
-                } finally {
-                    btn.disabled = false;
-                }
+    function bindWishButtons() {}
+    document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('.bx-wish-btn[data-item-id]');
+        if (!btn) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const itemId = btn.getAttribute('data-item-id');
+        if (!itemId || btn.disabled) return;
+        if (!loggedInMeta) {
+            const next = window.location.pathname + window.location.search;
+            window.location.href = baseMeta + '/login?next=' + encodeURIComponent(next);
+            return;
+        }
+        btn.disabled = true;
+        try {
+            const res = await fetch(baseMeta + '/api/wishlist-toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body: new URLSearchParams({ _csrf: csrfMeta, item_id: itemId })
             });
-        });
-    }
-    bindWishButtons(document);
+            if (res.status === 401) {
+                const next = window.location.pathname + window.location.search;
+                window.location.href = baseMeta + '/login?next=' + encodeURIComponent(next);
+                return;
+            }
+            const data = await res.json();
+            if (data.ok) {
+                document.querySelectorAll(`.bx-wish-btn[data-item-id="${itemId}"]`).forEach((el) => {
+                    el.classList.toggle('active', !!data.in_wishlist);
+                    el.setAttribute('aria-pressed', data.in_wishlist ? 'true' : 'false');
+                });
+                window.bxToast(data.message || (data.in_wishlist ? 'Saved to wishlist' : 'Removed from wishlist'));
+            } else {
+                window.bxToast(data.message || 'Could not update wishlist', 'danger');
+            }
+        } catch (err) {
+            window.bxToast('Network error updating wishlist', 'danger');
+        } finally {
+            btn.disabled = false;
+        }
+    });
 
     // Header Notification Bell Dropdown & Mark Read Actions
     const notifBtn = document.getElementById('bx-notif-btn');
@@ -196,13 +241,15 @@
         });
     }
 
+    // Shared Currency Formatter
+    const fmtBdt = (v) => '৳' + (Math.round(Number(v) * 100) % 100 === 0 ? Math.round(Number(v)) : Number(v).toFixed(2));
+
     // Checkout Live Coupon Apply
     const couponBox = document.getElementById('bx-checkout-coupon-box');
     const couponBtn = document.getElementById('btn-apply-coupon');
     const couponInp = document.getElementById('coupon_input');
     const couponHid = document.getElementById('checkout_coupon_hidden');
     if (couponBox && couponBtn && couponInp) {
-        const fmtBdt = (v) => '৳' + (Math.round(Number(v) * 100) % 100 === 0 ? Math.round(Number(v)) : Number(v).toFixed(2));
         const basePrice = parseFloat(couponBox.getAttribute('data-base-price') || '0');
         const syncManualPayVisibility = (finalAmt) => {
             const box = document.getElementById('bx-manual-pay-fields');
@@ -273,24 +320,7 @@
         });
     }
 
-    // 4. Interactive Modal System
-    document.querySelectorAll('[data-modal-open]').forEach((trigger) => {
-        trigger.addEventListener('click', () => {
-            const modal = document.getElementById(trigger.getAttribute('data-modal-open'));
-            if (modal) modal.classList.add('open');
-        });
-    });
-    document.querySelectorAll('[data-modal-close]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const backdrop = btn.closest('.bx-modal-backdrop');
-            if (backdrop) backdrop.classList.remove('open');
-        });
-    });
-    document.querySelectorAll('.bx-modal-backdrop').forEach((backdrop) => {
-        backdrop.addEventListener('click', (e) => {
-            if (e.target === backdrop) backdrop.classList.remove('open');
-        });
-    });
+    // 4. Interactive Modal System (clicks handled via single delegated listener above)
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             document.querySelectorAll('.bx-modal-backdrop.open').forEach((m) => m.classList.remove('open'));
@@ -321,36 +351,14 @@
         }, 3200);
     };
 
-    document.querySelectorAll('[data-toast-trigger]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            window.bxToast(btn.getAttribute('data-toast-trigger') || 'Bookexa notification!');
-        });
-    });
-
-    // 6. Scroll Reveal (eager rootMargin + jump-safe check so sections never stay faded)
-    const reveals = Array.from(document.querySelectorAll('.bx-reveal'));
-    if (reveals.length && 'IntersectionObserver' in window && !reducedMotion) {
-        const revealVisible = () => {
-            const vh = window.innerHeight || 800;
-            reveals.forEach((el) => {
-                if (el.classList.contains('is-visible')) return;
-                const r = el.getBoundingClientRect();
-                if (r.top <= vh + 80) el.classList.add('is-visible');
+    // 6. Passive reveal compatibility (all reveals visible by default in CSS)
+    if (!reducedMotion) {
+        const revNodes = document.getElementsByClassName('bx-reveal');
+        if (revNodes.length) {
+            scheduleIdle(() => {
+                for (let i = 0; i < revNodes.length; i++) revNodes[i].classList.add('is-visible');
             });
-        };
-        const obs = new IntersectionObserver((entries) => {
-            entries.forEach((entry) => {
-                if (entry.isIntersecting) {
-                    entry.target.classList.add('is-visible');
-                    obs.unobserve(entry.target);
-                }
-            });
-        }, { threshold: 0.01, rootMargin: '0px 0px 80px 0px' });
-        reveals.forEach((el) => obs.observe(el));
-        window.addEventListener('scroll', revealVisible, { passive: true });
-        revealVisible();
-    } else {
-        reveals.forEach((el) => el.classList.add('is-visible'));
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -378,79 +386,54 @@
         }
     }
 
-    // 3D Tilt on Portal Cards & 3D Book Detail (hover devices only)
-    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const finePointer = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-    if (!reduced && finePointer) {
-        document.querySelectorAll('.bx-portal-3d, .bx-detail-stage').forEach((wrap) => {
-            const card = wrap.querySelector('.bx-portal-card, .bx-detail-book-3d');
-            if (!card) return;
-            wrap.addEventListener('mousemove', (e) => {
-                const r = wrap.getBoundingClientRect();
-                const x = (e.clientX - r.left) / r.width - 0.5;
-                const y = (e.clientY - r.top) / r.height - 0.5;
-                card.style.setProperty('--rx', (-y * 8).toFixed(2) + 'deg');
-                card.style.setProperty('--ry', (x * 10).toFixed(2) + 'deg');
+    // Deferred hover tilt & hero slider auto-advance until idle so startup CPU stays near-zero
+    scheduleIdle(() => {
+        attach3dTilt('.bx-folder-3d', '.bx-folder-inner');
+        attach3dTilt('.bx-book-3d', '.bx-book-card');
+        if (!reducedMotion && canHover) {
+            document.querySelectorAll('.bx-portal-3d, .bx-detail-stage').forEach((wrap) => {
+                const card = wrap.querySelector('.bx-portal-card, .bx-detail-book-3d');
+                if (!card) return;
+                wrap.addEventListener('mousemove', (e) => {
+                    const r = wrap.getBoundingClientRect();
+                    const x = (e.clientX - r.left) / r.width - 0.5;
+                    const y = (e.clientY - r.top) / r.height - 0.5;
+                    card.style.setProperty('--rx', (-y * 8).toFixed(2) + 'deg');
+                    card.style.setProperty('--ry', (x * 10).toFixed(2) + 'deg');
+                }, { passive: true });
+                wrap.addEventListener('mouseleave', () => {
+                    card.style.setProperty('--rx', '0deg');
+                    card.style.setProperty('--ry', '0deg');
+                });
             });
-            wrap.addEventListener('mouseleave', () => {
-                card.style.setProperty('--rx', '0deg');
-                card.style.setProperty('--ry', '0deg');
-            });
-        });
+        }
+    });
+
+    // Auto-scroll deeply nested horizontal breadcrumbs lazily after initial render/idle
+    if (document.querySelector('.bx-breadcrumb')) {
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                document.querySelectorAll('.bx-breadcrumb').forEach((bc) => {
+                    try {
+                        if (bc.scrollWidth > bc.clientWidth + 4) bc.scrollLeft = bc.scrollWidth;
+                    } catch (err) {}
+                });
+            }, 900);
+        }, { once: true });
     }
 
-    // Show subtle loading skeleton when navigating inside folders
-    document.querySelectorAll('[data-folder-nav]').forEach((link) => {
-        link.addEventListener('click', () => {
-            const skel = document.getElementById('bx-folder-skeleton');
-            const content = document.getElementById('bx-folder-content');
-            if (skel && content) {
-                setTimeout(() => {
-                    content.style.display = 'none';
-                    skel.style.display = 'grid';
-                }, 120);
-            }
-        });
+    // Submit Loading State for auth & public forms (delegated)
+    document.addEventListener('submit', (e) => {
+        const form = e.target.closest('form[data-loading-form]');
+        if (!form) return;
+        const btn = form.querySelector('button[type="submit"][data-loading-label]');
+        if (!btn || btn.disabled) return;
+        btn.disabled = true;
+        btn.classList.add('is-loading');
+        btn.textContent = btn.getAttribute('data-loading-label') || btn.textContent;
     });
 
-    // Auto-scroll single-line breadcrumbs so current page is visible
-    document.querySelectorAll('.bx-breadcrumb').forEach((bc) => {
-        try { bc.scrollLeft = bc.scrollWidth; } catch (err) {}
-    });
-
-    // Password Show / Hide Toggle on auth forms
-    document.querySelectorAll('[data-pw-toggle]').forEach((btn) => {
-        btn.addEventListener('click', () => {
-            const input = document.getElementById(btn.getAttribute('data-pw-toggle') || '');
-            if (!input) return;
-            const reveal = input.type === 'password';
-            input.type = reveal ? 'text' : 'password';
-            btn.setAttribute('aria-pressed', reveal ? 'true' : 'false');
-            btn.setAttribute('aria-label', btn.getAttribute(reveal ? 'data-label-hide' : 'data-label-show') || '');
-            const openIcon = btn.querySelector('.bx-pw-eye-open');
-            const closedIcon = btn.querySelector('.bx-pw-eye-closed');
-            if (openIcon && closedIcon) {
-                openIcon.hidden = reveal;
-                closedIcon.hidden = !reveal;
-            }
-        });
-    });
-
-    // Submit Loading State for auth & public forms
-    document.querySelectorAll('form[data-loading-form]').forEach((form) => {
-        form.addEventListener('submit', () => {
-            const btn = form.querySelector('button[type="submit"][data-loading-label]');
-            if (!btn || btn.disabled) return;
-            btn.disabled = true;
-            btn.classList.add('is-loading');
-            btn.textContent = btn.getAttribute('data-loading-label') || btn.textContent;
-        });
-    });
-
-    // Print Invoice buttons & Public Confirm Prompts (strict CSP-safe)
-    document.querySelectorAll('[data-print-btn]').forEach((btn) => {
-        btn.addEventListener('click', () => window.print());
-    });
+    // Public Confirm Prompts (strict CSP-safe)
     document.addEventListener('click', (e) => {
         const trg = e.target.closest('[data-confirm]');
         if (!trg) return;
@@ -570,38 +553,52 @@
         });
     });
 
-    // Recently Viewed Guest localStorage Tracking & Home Hydration
+    // Register Service Worker strictly for static assets cache on repeat visits (deferred after initial TTI)
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                const swScope = (baseMeta || '') + '/';
+                navigator.serviceWorker.register(swScope + 'sw.js', { scope: swScope }).catch(() => {});
+            }, 3500);
+        }, { once: true });
+    }
+
+    // Recently Viewed Guest localStorage Tracking & Home Hydration (deferred to idle)
     const recentEl = document.querySelector('[data-recent-item]');
     if (recentEl) {
         const rid = parseInt(recentEl.getAttribute('data-recent-item') || '0', 10);
         if (rid > 0) {
-            try {
-                let list = JSON.parse(localStorage.getItem('bookexa_recent_views') || '[]');
-                if (!Array.isArray(list)) list = [];
-                list = [rid, ...list.filter((id) => Number(id) !== rid)].slice(0, 12);
-                localStorage.setItem('bookexa_recent_views', JSON.stringify(list));
-            } catch (e) {}
+            scheduleIdle(() => {
+                try {
+                    let list = JSON.parse(localStorage.getItem('bookexa_recent_views') || '[]');
+                    if (!Array.isArray(list)) list = [];
+                    list = [rid, ...list.filter((id) => Number(id) !== rid)].slice(0, 12);
+                    localStorage.setItem('bookexa_recent_views', JSON.stringify(list));
+                } catch (e) {}
+            });
         }
     }
     const guestRecGrid = document.getElementById('bx-guest-recent-grid');
     const guestRecSec  = document.getElementById('bx-guest-recent-sec');
     if (guestRecGrid && guestRecSec) {
-        try {
-            const ids = JSON.parse(localStorage.getItem('bookexa_recent_views') || '[]');
-            if (Array.isArray(ids) && ids.length > 0) {
-                fetch(baseMeta + '/api/items-by-ids?ids=' + encodeURIComponent(ids.slice(0, 8).join(',')))
-                    .then((r) => r.json())
-                    .then((d) => {
-                        if (d && d.ok && d.html) {
-                            guestRecGrid.innerHTML = d.html;
-                            guestRecGrid.querySelectorAll('.bx-reveal').forEach((el) => el.classList.add('is-visible'));
-                            bindWishButtons(guestRecGrid);
-                            attach3dTilt('.bx-book-3d', '.bx-book-card');
-                            guestRecSec.hidden = false;
-                        }
-                    }).catch(() => {});
-            }
-        } catch (e) {}
+        scheduleIdle(() => {
+            try {
+                const ids = JSON.parse(localStorage.getItem('bookexa_recent_views') || '[]');
+                if (Array.isArray(ids) && ids.length > 0) {
+                    fetch(baseMeta + '/api/items-by-ids?ids=' + encodeURIComponent(ids.slice(0, 8).join(',')))
+                        .then((r) => r.json())
+                        .then((d) => {
+                            if (d && d.ok && d.html) {
+                                guestRecGrid.innerHTML = d.html;
+                                guestRecGrid.querySelectorAll('.bx-reveal').forEach((el) => el.classList.add('is-visible'));
+                                bindWishButtons(guestRecGrid);
+                                attach3dTilt('.bx-book-3d', '.bx-book-card');
+                                guestRecSec.hidden = false;
+                            }
+                        }).catch(() => {});
+                }
+            } catch (e) {}
+        });
     }
 
     // Share link copy button (Book detail page)
@@ -629,6 +626,56 @@
         }
     });
 
+    // 60-second visible countdown on OTP Resend buttons
+    document.querySelectorAll('[data-otp-countdown]').forEach((btn) => {
+        let secs = parseInt(btn.getAttribute('data-otp-countdown') || '0', 10);
+        if (!Number.isFinite(secs) || secs <= 0) {
+            btn.disabled = false;
+            return;
+        }
+        const waitTpl = btn.getAttribute('data-wait-tpl') || 'Resend OTP in %ss';
+        const readyLabel = btn.getAttribute('data-ready-label') || 'Resend OTP Code';
+        const render = () => {
+            if (secs > 0) {
+                btn.disabled = true;
+                btn.textContent = waitTpl.replace('%s', String(secs));
+            } else {
+                btn.disabled = false;
+                btn.textContent = readyLabel;
+            }
+        };
+        render();
+        const tid = setInterval(() => {
+            secs -= 1;
+            render();
+            if (secs <= 0) clearInterval(tid);
+        }, 1000);
+    });
+
+    // Measure fixed mobile sticky CTA height on Book Detail page + auto-stack narrow labels
+    const detailCta = document.querySelector('.bx-detail-actions');
+    if (detailCta) {
+        const syncDetailCta = () => {
+            const st = window.getComputedStyle(detailCta);
+            if (st.position !== 'fixed') {
+                detailCta.classList.remove('is-stacked');
+                document.documentElement.style.removeProperty('--bx-sticky-cta-h');
+                return;
+            }
+            detailCta.classList.remove('is-stacked');
+            const btns = Array.from(detailCta.children);
+            const wrapped = btns.length > 1 && btns.some((b) => b.getBoundingClientRect().top > btns[0].getBoundingClientRect().top + 4);
+            const overflows = btns.some((b) => b.scrollWidth > b.clientWidth + 2);
+            if (wrapped || overflows) {
+                detailCta.classList.add('is-stacked');
+            }
+            const h = detailCta.offsetHeight || 68;
+            document.documentElement.style.setProperty('--bx-sticky-cta-h', (h + 16) + 'px');
+        };
+        requestAnimationFrame(syncDetailCta);
+        window.addEventListener('resize', () => requestAnimationFrame(syncDetailCta), { passive: true });
+    }
+
     // Mobile Soft Keyboard Focus Visibility (ensures sticky bottom bar / keyboard never hides active field)
     document.addEventListener('focusin', (e) => {
         if (window.innerWidth > 900) return;
@@ -638,4 +685,384 @@
             try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (err) {}
         }, 280);
     }, { passive: true });
+
+    // =========================================================================
+    // Physical Book Shop: Mini-Cart Drawer, Quick Add, Gallery & Live Checkout
+    // =========================================================================
+    const cartDrawerWrap = document.getElementById('bx-cart-drawer-wrap');
+    const cartDrawerBody = document.getElementById('bx-cart-drawer-body');
+    const cartDrawerFoot = document.getElementById('bx-cart-drawer-foot');
+    const cartToggleBtn  = document.getElementById('bx-cart-toggle');
+
+    function syncCartBadges(count) {
+        document.querySelectorAll('[data-cart-badge]').forEach((el) => {
+            el.textContent = count > 99 ? '99+' : String(count);
+            if (el.classList.contains('bx-notif-badge')) {
+                el.hidden = count <= 0;
+            }
+        });
+    }
+
+    function escapeHtml(str) {
+        return String(str || '').replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]));
+    }
+
+    async function loadMiniCart(openAfter) {
+        if (!cartDrawerBody) return;
+        if (openAfter && cartDrawerWrap) {
+            cartDrawerWrap.classList.add('open');
+            cartDrawerWrap.setAttribute('aria-hidden', 'false');
+        }
+        try {
+            const res = await fetch(baseMeta + '/api/cart', { headers: { Accept: 'application/json' } });
+            const data = await res.json();
+            syncCartBadges(data.item_count || 0);
+            if (!data.items || !data.items.length) {
+                cartDrawerBody.innerHTML = '<p class="bx-muted" style="text-align:center;padding:30px 0;">Your cart is empty.</p>';
+                if (cartDrawerFoot) cartDrawerFoot.hidden = true;
+                return;
+            }
+            const subEl = document.getElementById('bx-mini-sub');
+            if (subEl) subEl.textContent = fmtBdt(data.subtotal || 0);
+            if (cartDrawerFoot) cartDrawerFoot.hidden = false;
+            cartDrawerBody.innerHTML = data.items.map((it) => (
+                '<div class="bx-mini-cart-item" data-mini-pid="' + it.id + '">' +
+                    '<img src="' + escapeHtml(it.cover_url) + '" alt="" width="48" height="68" style="width:48px;height:68px;object-fit:cover;border-radius:8px;flex-shrink:0;">' +
+                    '<div style="flex:1 1 auto;min-width:0;">' +
+                        '<a href="' + escapeHtml(it.url) + '" style="font-weight:700;font-size:0.88rem;color:var(--primary);display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + escapeHtml(it.title) + '</a>' +
+                        '<div class="bx-muted" style="font-size:0.82rem;">' + fmtBdt(it.unit_price) + ' × ' + it.quantity + '</div>' +
+                        '<div style="display:flex;align-items:center;gap:6px;margin-top:4px;">' +
+                            '<button type="button" class="bx-btn bx-btn-outline bx-btn-sm" data-mini-qty="' + it.id + '" data-next-qty="' + (it.quantity - 1) + '">−</button>' +
+                            '<span style="font-weight:700;font-size:0.86rem;">' + it.quantity + '</span>' +
+                            '<button type="button" class="bx-btn bx-btn-outline bx-btn-sm" data-mini-qty="' + it.id + '" data-next-qty="' + (it.quantity + 1) + '">+</button>' +
+                            '<button type="button" class="bx-btn bx-btn-ghost bx-btn-sm" data-mini-qty="' + it.id + '" data-next-qty="0" style="color:var(--rose-text);margin-left:auto;">✕</button>' +
+                        '</div>' +
+                    '</div>' +
+                '</div>'
+            )).join('');
+        } catch (err) {}
+    }
+
+    if (cartToggleBtn && cartDrawerWrap) {
+        cartToggleBtn.addEventListener('click', () => loadMiniCart(true));
+        document.getElementById('bx-cart-close')?.addEventListener('click', () => cartDrawerWrap.classList.remove('open'));
+        document.getElementById('bx-cart-backdrop')?.addEventListener('click', () => cartDrawerWrap.classList.remove('open'));
+    }
+
+    async function cartPost(params) {
+        params.set('_csrf', csrfMeta);
+        const res = await fetch(baseMeta + '/api/cart', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+            body: params
+        });
+        return await res.json();
+    }
+
+    document.addEventListener('click', async (e) => {
+        const addBtn = e.target.closest('[data-add-cart], [data-add-cart-detail]');
+        if (addBtn) {
+            e.preventDefault();
+            const pid = addBtn.getAttribute('data-add-cart') || addBtn.getAttribute('data-add-cart-detail');
+            const qtySel = addBtn.getAttribute('data-qty-input');
+            const qty = qtySel && document.querySelector(qtySel) ? parseInt(document.querySelector(qtySel).value || '1', 10) : 1;
+            const goCheckout = addBtn.getAttribute('data-go-checkout') === '1';
+            addBtn.disabled = true;
+            try {
+                const data = await cartPost(new URLSearchParams({ action: 'add', product_id: pid, quantity: String(Math.max(1, qty)) }));
+                if (data.ok) {
+                    syncCartBadges(data.item_count || 0);
+                    if (goCheckout) {
+                        window.location.href = baseMeta + '/shop/checkout';
+                        return;
+                    }
+                    if (window.bxToast) window.bxToast(data.message || 'Added to cart!');
+                    loadMiniCart(true);
+                } else if (window.bxToast) {
+                    window.bxToast(data.message || 'Could not add item', 'danger');
+                }
+            } finally {
+                addBtn.disabled = false;
+            }
+            return;
+        }
+
+        const miniQtyBtn = e.target.closest('[data-mini-qty]');
+        if (miniQtyBtn) {
+            const pid = miniQtyBtn.getAttribute('data-mini-qty');
+            const nextQty = miniQtyBtn.getAttribute('data-next-qty');
+            miniQtyBtn.disabled = true;
+            const data = await cartPost(new URLSearchParams({ action: 'update', product_id: pid, quantity: nextQty }));
+            syncCartBadges(data.item_count || 0);
+            loadMiniCart(false);
+            return;
+        }
+
+        const stepBtn = e.target.closest('[data-qty-step]');
+        if (stepBtn) {
+            const inp = stepBtn.closest('.bx-qty-control')?.querySelector('input');
+            if (!inp) return;
+            const d = parseInt(stepBtn.getAttribute('data-qty-step') || '0', 10);
+            const min = parseInt(inp.getAttribute('min') || '1', 10);
+            const max = parseInt(inp.getAttribute('max') || '99', 10);
+            inp.value = String(Math.max(min, Math.min(max, (parseInt(inp.value || '1', 10) || 1) + d)));
+            return;
+        }
+
+        const thumbBtn = e.target.closest('[data-gallery-thumb]');
+        if (thumbBtn) {
+            const mainImg = document.getElementById('bx-product-main-img');
+            const src = thumbBtn.getAttribute('data-gallery-thumb');
+            if (mainImg && src) mainImg.src = src;
+            document.querySelectorAll('[data-gallery-thumb]').forEach((b) => b.classList.remove('active'));
+            thumbBtn.classList.add('active');
+            return;
+        }
+
+        const shopWish = e.target.closest('[data-shop-wish]');
+        if (shopWish) {
+            if (!isLoggedIn) {
+                window.location.href = baseMeta + '/login?next=' + encodeURIComponent(window.location.pathname + window.location.search);
+                return;
+            }
+            const pid = shopWish.getAttribute('data-shop-wish');
+            const res = await fetch(baseMeta + '/api/shop-wishlist-toggle', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+                body: new URLSearchParams({ _csrf: csrfMeta, product_id: pid })
+            });
+            const data = await res.json();
+            if (data.ok) {
+                shopWish.classList.toggle('is-wished', !!data.wished);
+                if (window.bxToast) window.bxToast(data.message || 'Updated wishlist');
+            }
+        }
+    });
+
+    // Live Shop Checkout: Delivery fee, coupon, payment fields & double-submit lock
+    const shopCheckoutForm = document.getElementById('bx-shop-checkout-form');
+    if (shopCheckoutForm) {
+        const areaSel = shopCheckoutForm.querySelector('[data-checkout-area]');
+        const distSel = shopCheckoutForm.querySelector('[data-checkout-district]');
+        const couponInp = document.getElementById('bx-shop-coupon-input');
+        const couponBtn = document.getElementById('bx-shop-coupon-apply');
+        const couponMsg = document.getElementById('bx-shop-coupon-msg');
+        const manualBox = document.getElementById('bx-shop-manual-fields');
+        const senderInp = document.getElementById('shop_sender_number');
+        const trxInp    = document.getElementById('shop_transaction_id');
+
+        const refreshTotals = async (extraParams) => {
+            const p = extraParams || new URLSearchParams({
+                action: 'shipping',
+                delivery_area: areaSel ? areaSel.value : 'inside_dhaka',
+                district: distSel ? distSel.value : 'Dhaka'
+            });
+            const data = await cartPost(p);
+            if (document.getElementById('bx-co-sub')) document.getElementById('bx-co-sub').textContent = fmtBdt(data.subtotal || 0);
+            const dRow = document.getElementById('bx-co-disc-row');
+            if (dRow) dRow.style.display = (data.discount_amount || 0) > 0 ? 'flex' : 'none';
+            if (document.getElementById('bx-co-disc')) document.getElementById('bx-co-disc').textContent = '-' + fmtBdt(data.discount_amount || 0);
+            if (document.getElementById('bx-co-del')) document.getElementById('bx-co-del').textContent = (data.delivery_fee || 0) <= 0 ? 'FREE' : fmtBdt(data.delivery_fee || 0);
+            if (document.getElementById('bx-co-tot')) document.getElementById('bx-co-tot').textContent = fmtBdt(data.total_amount || 0);
+            return data;
+        };
+
+        areaSel?.addEventListener('change', () => refreshTotals());
+        distSel?.addEventListener('change', () => refreshTotals());
+        couponBtn?.addEventListener('click', async () => {
+            const data = await refreshTotals(new URLSearchParams({ action: 'coupon', code: couponInp ? couponInp.value.trim() : '' }));
+            if (couponMsg) {
+                couponMsg.textContent = data.coupon_message || data.message || '';
+                couponMsg.style.color = data.coupon_ok ? 'var(--teal)' : 'var(--rose-text)';
+            }
+        });
+
+        const syncPayBox = () => {
+            const chosen = shopCheckoutForm.querySelector('[data-shop-pay-radio]:checked')?.value || 'cod';
+            const needManual = ['bkash', 'nagad', 'rocket'].includes(chosen);
+            if (manualBox) manualBox.style.display = needManual ? '' : 'none';
+            if (senderInp) senderInp.required = needManual;
+            if (trxInp) trxInp.required = needManual;
+        };
+        shopCheckoutForm.querySelectorAll('[data-shop-pay-radio]').forEach((r) => r.addEventListener('change', syncPayBox));
+        syncPayBox();
+
+        let submittingShop = false;
+        shopCheckoutForm.addEventListener('submit', () => {
+            if (submittingShop) return false;
+            submittingShop = true;
+            const btn = document.getElementById('bx-shop-submit-btn');
+            if (btn) {
+                btn.disabled = true;
+                const sp = btn.querySelector('span');
+                if (sp && btn.getAttribute('data-loading-label')) sp.textContent = btn.getAttribute('data-loading-label');
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------------
+    // Indexing & Growth Tools: Analytics Beacon, Consent GA4/Clarity, Share, Bell & Newsletter
+    // -------------------------------------------------------------------------
+    const langMeta    = document.querySelector('meta[name="bx-lang"]')?.content || 'bn';
+    const routeMeta   = document.querySelector('meta[name="bx-route"]')?.content || window.location.pathname;
+    const dntServer   = document.querySelector('meta[name="bx-dnt"]')?.content === '1';
+    const dntClient   = navigator.doNotTrack === '1' || window.doNotTrack === '1' || navigator.globalPrivacyControl === true;
+    const isDntActive = dntServer || dntClient;
+
+    function sendAnalyticsEvent(evType, extraPath) {
+        if (isDntActive) return;
+        let loadMs = 0;
+        try {
+            const nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+            if (nav && nav.duration > 0) loadMs = Math.min(60000, Math.round(nav.duration));
+        } catch (e) {}
+        const payload = JSON.stringify({
+            event: evType || 'pageview',
+            path: extraPath || routeMeta || '/',
+            lang: langMeta,
+            ref: document.referrer || '',
+            load_ms: loadMs
+        });
+        const endpoint = baseMeta + '/api/analytics-ping';
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon(endpoint, new Blob([payload], { type: 'application/json' }));
+        } else {
+            fetch(endpoint, { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: payload }).catch(() => {});
+        }
+    }
+
+    // 1. Privacy-first first-party pageview ping (deferred idle, zero CWV impact)
+    if (!document.documentElement.classList.contains('bx-admin-page')) {
+        window.addEventListener('load', () => {
+            scheduleIdle(() => sendAnalyticsEvent('pageview'));
+        }, { once: true });
+    }
+
+    // 2. Cookie Consent & Third-Party Analytics (GA4 & Clarity loaded strictly post-consent)
+    const gaId      = document.querySelector('meta[name="bx-ga-id"]')?.content || '';
+    const clarityId = document.querySelector('meta[name="bx-clarity-id"]')?.content || '';
+    const cookieBanner = document.getElementById('bx-cookie-banner');
+    let thirdPartyLoaded = false;
+
+    function loadThirdPartyAnalytics() {
+        if (thirdPartyLoaded || isDntActive) return;
+        thirdPartyLoaded = true;
+        if (gaId) {
+            window.dataLayer = window.dataLayer || [];
+            window.gtag = function () { window.dataLayer.push(arguments); };
+            window.gtag('js', new Date());
+            window.gtag('config', gaId, { anonymize_ip: true });
+            const gs = document.createElement('script');
+            gs.async = true;
+            gs.src = 'https://www.googletagmanager.com/gtag/js?id=' + encodeURIComponent(gaId);
+            document.head.appendChild(gs);
+        }
+        if (clarityId) {
+            window.clarity = window.clarity || function () { (window.clarity.q = window.clarity.q || []).push(arguments); };
+            const cs = document.createElement('script');
+            cs.async = true;
+            cs.src = 'https://www.clarity.ms/tag/' + encodeURIComponent(clarityId);
+            document.head.appendChild(cs);
+        }
+    }
+
+    let consentState = '';
+    try { consentState = localStorage.getItem('bx_cookie_consent') || ''; } catch (e) {}
+    if (consentState === 'all') {
+        scheduleIdle(loadThirdPartyAnalytics);
+    } else if (!consentState && cookieBanner && (gaId || clarityId)) {
+        scheduleIdle(() => { cookieBanner.hidden = false; });
+    }
+
+    document.getElementById('bx-cookie-essential')?.addEventListener('click', () => {
+        try { localStorage.setItem('bx_cookie_consent', 'essential'); } catch (e) {}
+        if (cookieBanner) cookieBanner.hidden = true;
+    });
+    document.getElementById('bx-cookie-accept')?.addEventListener('click', () => {
+        try { localStorage.setItem('bx_cookie_consent', 'all'); } catch (e) {}
+        if (cookieBanner) cookieBanner.hidden = true;
+        loadThirdPartyAnalytics();
+    });
+    document.getElementById('bx-cookie-prefs-btn')?.addEventListener('click', () => {
+        if (cookieBanner) cookieBanner.hidden = false;
+    });
+
+    // 3. Messenger Share Desktop Fallback, Share Analytics Ping & Folder Subscribe Bell
+    document.addEventListener('click', async (e) => {
+        const msgLink = e.target.closest('[data-messenger-share]');
+        if (msgLink) {
+            sendAnalyticsEvent('share');
+            const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+            if (!isMobile) {
+                e.preventDefault();
+                const sUrl = msgLink.getAttribute('data-share-url') || window.location.href;
+                const sTitle = msgLink.getAttribute('data-share-title') || document.title;
+                if (navigator.share) {
+                    try { await navigator.share({ title: sTitle, url: sUrl }); return; } catch (err) {}
+                }
+                try { if (navigator.clipboard) await navigator.clipboard.writeText(sUrl); } catch (err) {}
+                if (window.bxToast) window.bxToast(msgLink.getAttribute('data-copied-label') || 'Link copied!');
+            }
+            return;
+        }
+        if (e.target.closest('[data-share-channel], [data-copy-link]')) {
+            sendAnalyticsEvent('share');
+        }
+        const subBtn = e.target.closest('[data-folder-subscribe]');
+        if (subBtn) {
+            const fid = subBtn.getAttribute('data-folder-subscribe') || '0';
+            subBtn.disabled = true;
+            try {
+                const res = await fetch(baseMeta + '/api/folder-subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+                    body: new URLSearchParams({ _csrf: csrfMeta, folder_id: fid })
+                });
+                const d = await res.json();
+                if (res.status === 401) {
+                    window.location.href = baseMeta + '/login?redirect=' + encodeURIComponent(window.location.pathname);
+                    return;
+                }
+                if (d.ok) {
+                    subBtn.setAttribute('aria-pressed', d.subscribed ? 'true' : 'false');
+                    subBtn.classList.toggle('bx-btn-primary', !!d.subscribed);
+                    subBtn.classList.toggle('bx-btn-outline', !d.subscribed);
+                    const lblSpan = subBtn.querySelector('span');
+                    if (lblSpan) lblSpan.textContent = subBtn.getAttribute(d.subscribed ? 'data-label-on' : 'data-label-off') || lblSpan.textContent;
+                }
+                if (window.bxToast && d.message) window.bxToast(d.message);
+            } catch (err) {}
+            subBtn.disabled = false;
+        }
+    });
+
+    // 4. Double Opt-In Newsletter AJAX Form
+    document.addEventListener('submit', async (e) => {
+        const nlForm = e.target.closest('[data-newsletter-form]');
+        if (!nlForm) return;
+        e.preventDefault();
+        const emailIn = nlForm.querySelector('input[name="email"]');
+        const submitBtn = nlForm.querySelector('button[type="submit"]');
+        const srcIn = nlForm.querySelector('input[name="source_path"]');
+        if (!emailIn || !emailIn.value.trim()) return;
+        if (submitBtn) submitBtn.disabled = true;
+        try {
+            const res = await fetch(baseMeta + '/api/newsletter/subscribe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
+                body: new URLSearchParams({
+                    _csrf: csrfMeta,
+                    email: emailIn.value.trim(),
+                    source_path: srcIn ? srcIn.value : routeMeta
+                })
+            });
+            const data = await res.json();
+            if (window.bxToast && data.message) window.bxToast(data.message);
+            if (data.ok) nlForm.reset();
+        } catch (err) {
+            if (window.bxToast) window.bxToast('Network error. Please try again.');
+        } finally {
+            if (submitBtn) submitBtn.disabled = false;
+        }
+    });
 })();

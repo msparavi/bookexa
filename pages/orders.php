@@ -135,4 +135,97 @@ $lang = current_lang();
             </div>
         <?php endif; ?>
     </div>
+
+    <!-- Physical Book Orders Section -->
+    <div class="bx-card" style="padding:22px;margin-top:24px;" id="physical-orders">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px;">
+            <h2 class="bx-h3" style="margin:0;"><?= $lang === 'bn' ? 'প্রিন্টেড বইয়ের অর্ডারসমূহ' : 'Physical Book Orders' ?></h2>
+            <a href="<?= e(url('/shop')) ?>" class="bx-btn bx-btn-outline bx-btn-sm"><?= icon('cart') ?> <?= e(t('portal_shop_cta')) ?></a>
+        </div>
+
+        <?php if (empty($shopOrders)): ?>
+            <p class="bx-muted" style="margin:0;"><?= $lang === 'bn' ? 'এখনো কোনো প্রিন্টেড বইয়ের অর্ডার করা হয়নি।' : 'You have not placed any physical book orders yet.' ?></p>
+        <?php else: ?>
+            <div style="display:flex;flex-direction:column;gap:14px;">
+                <?php foreach ($shopOrders as $so):
+                    $soId = (int) $so['id'];
+                    $soCode = (string) $so['order_code'];
+                    $st = (string) $so['status'];
+                    $stMeta = shop_order_status_labels($st);
+                    $soItems = $shopOrderItemsById[$soId] ?? [];
+                    $retSt = (string) ($so['return_status'] ?? 'none');
+                ?>
+                    <div style="padding:16px;border-radius:14px;background:var(--bg-alt);border:1px solid var(--border);">
+                        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+                            <div>
+                                <strong style="font-size:1.05rem;">#<?= e($soCode) ?></strong>
+                                <div class="bx-muted" style="font-size:0.84rem;"><?= e(date('d M Y, h:i A', strtotime((string) $so['created_at']))) ?> • <?= e(strtoupper((string) $so['payment_method'])) ?></div>
+                            </div>
+                            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                                <span class="bx-badge <?= e($stMeta['badge']) ?>"><?= e($lang === 'bn' ? $stMeta['bn'] : $stMeta['en']) ?></span>
+                                <?php if ($retSt !== 'none'): $rMeta = shop_return_status_labels($retSt); ?>
+                                    <span class="bx-badge <?= e($rMeta['badge']) ?>"><?= e($lang === 'bn' ? $rMeta['bn'] : $rMeta['en']) ?></span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+
+                        <div style="font-size:0.9rem;margin-bottom:8px;">
+                            <?php foreach ($soItems as $sli): ?>
+                                <div><?= (int) $sli['quantity'] ?>× <?= e($lang === 'bn' ? $sli['title_bn'] : $sli['title_en']) ?> — <strong><?= e(format_bdt((float) $sli['line_total'])) ?></strong></div>
+                            <?php endforeach; ?>
+                        </div>
+
+                        <div style="font-size:0.86rem;color:var(--text-muted);margin-bottom:10px;">
+                            <strong><?= $lang === 'bn' ? 'মোট:' : 'Total:' ?></strong> <?= e(format_bdt((float) $so['total_amount'])) ?>
+                            <?php if (!empty($so['courier_name']) || !empty($so['tracking_code'])): ?>
+                                • <strong><?= $lang === 'bn' ? 'ট্র্যাকিং:' : 'Tracking:' ?></strong> <?= e((string) ($so['courier_name'] ?: '')) ?> <?= e((string) ($so['tracking_code'] ?: '')) ?>
+                            <?php endif; ?>
+                            <?php if (!empty($so['admin_note'])): ?>
+                                <div style="margin-top:4px;color:var(--primary);">Note: <?= e((string) $so['admin_note']) ?></div>
+                            <?php endif; ?>
+                        </div>
+
+                        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                            <a href="<?= e(url('/shop/track?code=' . rawurlencode($soCode))) ?>" class="bx-btn bx-btn-outline bx-btn-sm"><?= icon('truck') ?> <?= $lang === 'bn' ? 'ট্র্যাক' : 'Track' ?></a>
+                            <a href="<?= e(url('/shop/orders/' . rawurlencode($soCode) . '/invoice')) ?>" target="_blank" rel="noopener" class="bx-btn bx-btn-ghost bx-btn-sm"><?= icon('printer') ?> <?= $lang === 'bn' ? 'ইনভয়েস' : 'Invoice' ?></a>
+
+                            <form method="post" action="<?= e(url('/orders')) ?>" style="margin:0;">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="action" value="shop_reorder">
+                                <input type="hidden" name="shop_order_id" value="<?= $soId ?>">
+                                <button type="submit" class="bx-btn bx-btn-primary bx-btn-sm"><?= icon('rotate') ?> <?= $lang === 'bn' ? 'পুনরায় অর্ডার' : 'Reorder' ?></button>
+                            </form>
+
+                            <?php if ($st === 'pending'): ?>
+                                <form method="post" action="<?= e(url('/orders')) ?>" style="margin:0;">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="shop_cancel_order">
+                                    <input type="hidden" name="shop_order_id" value="<?= $soId ?>">
+                                    <button type="submit" class="bx-btn bx-btn-ghost bx-btn-sm" style="color:var(--rose-text);"><?= $lang === 'bn' ? 'বাতিল করুন' : 'Cancel' ?></button>
+                                </form>
+                            <?php endif; ?>
+                        </div>
+
+                        <?php if (shop_can_request_return($so)): ?>
+                            <details style="margin-top:10px;">
+                                <summary class="bx-btn bx-btn-outline bx-btn-sm" style="cursor:pointer;list-style:none;display:inline-flex;">
+                                    <?= $lang === 'bn' ? 'রিটার্ন অনুরোধ করুন' : 'Request Return' ?>
+                                </summary>
+                                <form method="post" action="<?= e(url('/orders')) ?>" style="margin-top:8px;padding:12px;border-radius:10px;background:var(--surface);border:1px solid var(--border);">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="shop_request_return">
+                                    <input type="hidden" name="shop_order_id" value="<?= $soId ?>">
+                                    <div class="bx-field" style="margin-bottom:8px;">
+                                        <label style="font-size:0.84rem;"><?= $lang === 'bn' ? 'রিটার্নের কারণ *' : 'Reason for Return *' ?></label>
+                                        <textarea name="return_reason" rows="2" class="bx-input" required placeholder="<?= e($lang === 'bn' ? 'ক্ষতিগ্রস্ত বই বা ভুল পণ্য...' : 'Describe damaged book or wrong item...') ?>"></textarea>
+                                    </div>
+                                    <button type="submit" class="bx-btn bx-btn-accent bx-btn-sm"><?= $lang === 'bn' ? 'রিটার্ন জমা দিন' : 'Submit Return Request' ?></button>
+                                </form>
+                            </details>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php endif; ?>
+    </div>
 </div>

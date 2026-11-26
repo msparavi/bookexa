@@ -35,6 +35,91 @@ $ret = $_SERVER['REQUEST_URI'] ?? '/admin/reviews';
     </div>
 </section>
 
+<?php
+$prodReviews = db_all(
+    "SELECT pr.*, u.name AS user_name, u.email AS user_email, p.title_bn, p.title_en, p.slug
+     FROM product_reviews pr
+     JOIN users u ON u.id = pr.user_id
+     JOIN products p ON p.id = pr.product_id
+     {$where}
+     ORDER BY pr.id DESC
+     LIMIT 100",
+    $params
+);
+?>
+<section class="bx-card" style="margin-top:20px;">
+    <h2 style="margin:0 0 14px;font-size:1.1rem;font-family:var(--font-serif);"><?= $lang === 'bn' ? 'প্রিন্টেড বই (শপ) রিভিউ ও রেটিং' : 'Physical Book (Shop) Reviews' ?> (<?= count($prodReviews) ?>)</h2>
+    <div class="bx-table-wrap">
+        <table class="bx-table bx-mobile-cards">
+            <thead>
+                <tr>
+                    <th><?= $lang === 'bn' ? 'বই' : 'Product' ?></th>
+                    <th><?= $lang === 'bn' ? 'ক্রেতা' : 'Verified Buyer' ?></th>
+                    <th><?= $lang === 'bn' ? 'রেটিং ও মতামত' : 'Rating & Comment' ?></th>
+                    <th><?= $lang === 'bn' ? 'অবস্থা' : 'Status' ?></th>
+                    <th><?= $lang === 'bn' ? 'অ্যাকশন' : 'Actions' ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (!$prodReviews): ?>
+                    <tr class="bx-empty-row"><td colspan="5" style="color:var(--text-muted);padding:24px;"><?= $lang === 'bn' ? 'কোনো শপ রিভিউ পাওয়া যায়নি।' : 'No product reviews found.' ?></td></tr>
+                <?php else: foreach ($prodReviews as $pr): $prid = (int) $pr['id']; $pst = (string) $pr['status']; ?>
+                    <tr>
+                        <td class="bx-td-primary">
+                            <a href="<?= e(url('/shop/' . rawurlencode($pr['slug']))) ?>" target="_blank" rel="noopener" style="font-weight:700;color:var(--primary);">
+                                <?= e($lang === 'bn' ? $pr['title_bn'] : $pr['title_en']) ?>
+                            </a>
+                            <div style="font-size:0.78rem;color:var(--text-muted);"><?= e(date('d M Y, H:i', strtotime((string) $pr['created_at']))) ?></div>
+                        </td>
+                        <td data-label="<?= e($lang === 'bn' ? 'ক্রেতা' : 'Buyer') ?>">
+                            <div><?= e($pr['user_name']) ?></div>
+                            <small class="bx-ellipsis" style="color:var(--text-muted);"><?= e($pr['user_email']) ?></small>
+                        </td>
+                        <td data-label="<?= e($lang === 'bn' ? 'রিভিউ' : 'Review') ?>">
+                            <?= render_stars_html((float) $pr['rating']) ?>
+                            <div style="margin-top:4px;font-size:0.9rem;"><?= e((string) $pr['comment']) ?></div>
+                        </td>
+                        <td data-label="<?= e($lang === 'bn' ? 'অবস্থা' : 'Status') ?>">
+                            <span class="bx-status-pill <?= $pst === 'approved' ? 'st-approved' : ($pst === 'pending' ? 'st-pending' : 'st-rejected') ?>">
+                                <?= e(ucfirst($pst)) ?>
+                            </span>
+                        </td>
+                        <td class="bx-td-actions">
+                            <?php if ($pst !== 'approved'): ?>
+                                <form method="post" action="<?= e(url('/admin/reviews')) ?>" style="margin:0;">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="shop_review_moderate">
+                                    <input type="hidden" name="id" value="<?= $prid ?>">
+                                    <input type="hidden" name="status" value="approved">
+                                    <input type="hidden" name="_return" value="<?= e($ret) ?>">
+                                    <button type="submit" class="bx-btn bx-btn-primary bx-btn-sm"><?= $lang === 'bn' ? 'অনুমোদন' : 'Approve' ?></button>
+                                </form>
+                            <?php endif; ?>
+                            <?php if ($pst !== 'hidden'): ?>
+                                <form method="post" action="<?= e(url('/admin/reviews')) ?>" style="margin:0;">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="shop_review_moderate">
+                                    <input type="hidden" name="id" value="<?= $prid ?>">
+                                    <input type="hidden" name="status" value="hidden">
+                                    <input type="hidden" name="_return" value="<?= e($ret) ?>">
+                                    <button type="submit" class="bx-btn bx-btn-outline bx-btn-sm"><?= $lang === 'bn' ? 'লুকান' : 'Hide' ?></button>
+                                </form>
+                            <?php endif; ?>
+                            <form method="post" action="<?= e(url('/admin/reviews')) ?>" data-confirm-msg="<?= e($lang === 'bn' ? 'এই রিভিউ মুছবেন?' : 'Delete product review?') ?>" style="margin:0;">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="action" value="shop_review_delete">
+                                <input type="hidden" name="id" value="<?= $prid ?>">
+                                <input type="hidden" name="_return" value="<?= e($ret) ?>">
+                                <button type="submit" class="bx-btn bx-btn-ghost bx-btn-sm" style="color:var(--rose-text);"><?= $lang === 'bn' ? 'মুছুন' : 'Delete' ?></button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; endif; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
+
 <section class="bx-card">
     <h2 style="margin:0 0 14px;font-size:1.1rem;font-family:var(--font-serif);"><?= $lang === 'bn' ? 'রিভিউ ও রেটিং মডারেশন' : 'Reviews & Ratings Moderation' ?></h2>
     <div class="bx-table-wrap">
@@ -104,6 +189,91 @@ $ret = $_SERVER['REQUEST_URI'] ?? '/admin/reviews';
                                 <input type="hidden" name="id" value="<?= $rid ?>">
                                 <input type="hidden" name="_return" value="<?= e($ret) ?>">
                                 <button type="submit" class="bx-btn bx-btn-ghost" style="padding:8px 12px;font-size:0.84rem;color:var(--rose-text);"><?= $lang === 'bn' ? 'মুছুন' : 'Delete' ?></button>
+                            </form>
+                        </td>
+                    </tr>
+                <?php endforeach; endif; ?>
+            </tbody>
+        </table>
+    </div>
+</section>
+
+<?php
+$prodReviews = db_all(
+    "SELECT pr.*, u.name AS user_name, u.email AS user_email, p.title_bn, p.title_en, p.slug
+     FROM product_reviews pr
+     JOIN users u ON u.id = pr.user_id
+     JOIN products p ON p.id = pr.product_id
+     {$where}
+     ORDER BY pr.id DESC
+     LIMIT 100",
+    $params
+);
+?>
+<section class="bx-card" style="margin-top:20px;">
+    <h2 style="margin:0 0 14px;font-size:1.1rem;font-family:var(--font-serif);"><?= $lang === 'bn' ? 'প্রিন্টেড বই (শপ) রিভিউ ও রেটিং' : 'Physical Book (Shop) Reviews' ?> (<?= count($prodReviews) ?>)</h2>
+    <div class="bx-table-wrap">
+        <table class="bx-table bx-mobile-cards">
+            <thead>
+                <tr>
+                    <th><?= $lang === 'bn' ? 'বই' : 'Product' ?></th>
+                    <th><?= $lang === 'bn' ? 'ক্রেতা' : 'Verified Buyer' ?></th>
+                    <th><?= $lang === 'bn' ? 'রেটিং ও মতামত' : 'Rating & Comment' ?></th>
+                    <th><?= $lang === 'bn' ? 'অবস্থা' : 'Status' ?></th>
+                    <th><?= $lang === 'bn' ? 'অ্যাকশন' : 'Actions' ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php if (!$prodReviews): ?>
+                    <tr class="bx-empty-row"><td colspan="5" style="color:var(--text-muted);padding:24px;"><?= $lang === 'bn' ? 'কোনো শপ রিভিউ পাওয়া যায়নি।' : 'No product reviews found.' ?></td></tr>
+                <?php else: foreach ($prodReviews as $pr): $prid = (int) $pr['id']; $pst = (string) $pr['status']; ?>
+                    <tr>
+                        <td class="bx-td-primary">
+                            <a href="<?= e(url('/shop/' . rawurlencode($pr['slug']))) ?>" target="_blank" rel="noopener" style="font-weight:700;color:var(--primary);">
+                                <?= e($lang === 'bn' ? $pr['title_bn'] : $pr['title_en']) ?>
+                            </a>
+                            <div style="font-size:0.78rem;color:var(--text-muted);"><?= e(date('d M Y, H:i', strtotime((string) $pr['created_at']))) ?></div>
+                        </td>
+                        <td data-label="<?= e($lang === 'bn' ? 'ক্রেতা' : 'Buyer') ?>">
+                            <div><?= e($pr['user_name']) ?></div>
+                            <small class="bx-ellipsis" style="color:var(--text-muted);"><?= e($pr['user_email']) ?></small>
+                        </td>
+                        <td data-label="<?= e($lang === 'bn' ? 'রিভিউ' : 'Review') ?>">
+                            <?= render_stars_html((float) $pr['rating']) ?>
+                            <div style="margin-top:4px;font-size:0.9rem;"><?= e((string) $pr['comment']) ?></div>
+                        </td>
+                        <td data-label="<?= e($lang === 'bn' ? 'অবস্থা' : 'Status') ?>">
+                            <span class="bx-status-pill <?= $pst === 'approved' ? 'st-approved' : ($pst === 'pending' ? 'st-pending' : 'st-rejected') ?>">
+                                <?= e(ucfirst($pst)) ?>
+                            </span>
+                        </td>
+                        <td class="bx-td-actions">
+                            <?php if ($pst !== 'approved'): ?>
+                                <form method="post" action="<?= e(url('/admin/reviews')) ?>" style="margin:0;">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="shop_review_moderate">
+                                    <input type="hidden" name="id" value="<?= $prid ?>">
+                                    <input type="hidden" name="status" value="approved">
+                                    <input type="hidden" name="_return" value="<?= e($ret) ?>">
+                                    <button type="submit" class="bx-btn bx-btn-primary bx-btn-sm"><?= $lang === 'bn' ? 'অনুমোদন' : 'Approve' ?></button>
+                                </form>
+                            <?php endif; ?>
+                            <?php if ($pst !== 'hidden'): ?>
+                                <form method="post" action="<?= e(url('/admin/reviews')) ?>" style="margin:0;">
+                                    <?= csrf_field() ?>
+                                    <input type="hidden" name="action" value="shop_review_moderate">
+                                    <input type="hidden" name="id" value="<?= $prid ?>">
+                                    <input type="hidden" name="status" value="hidden">
+                                    <input type="hidden" name="_return" value="<?= e($ret) ?>">
+                                    <button type="submit" class="bx-btn bx-btn-outline bx-btn-sm"><?= $lang === 'bn' ? 'লুকান' : 'Hide' ?></button>
+                                </form>
+                            <?php endif; ?>
+                            <form method="post" action="<?= e(url('/admin/reviews')) ?>" data-confirm-msg="<?= e($lang === 'bn' ? 'এই রিভিউ মুছবেন?' : 'Delete product review?') ?>" style="margin:0;">
+                                <?= csrf_field() ?>
+                                <input type="hidden" name="action" value="shop_review_delete">
+                                <input type="hidden" name="id" value="<?= $prid ?>">
+                                <input type="hidden" name="_return" value="<?= e($ret) ?>">
+                                <button type="submit" class="bx-btn bx-btn-ghost bx-btn-sm" style="color:var(--rose-text);"><?= $lang === 'bn' ? 'মুছুন' : 'Delete' ?></button>
                             </form>
                         </td>
                     </tr>

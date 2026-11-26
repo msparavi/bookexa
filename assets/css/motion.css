@@ -99,32 +99,13 @@
     to   { opacity: 1; transform: translateX(0); }
 }
 
-/* 4. Sticky Shrinking Header & Animated Icons */
-.bx-header {
-    transition: background-color 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-}
-.bx-header-inner {
-    transition: transform 0.28s var(--ease-spring);
-}
-.bx-header.is-scrolled {
-    box-shadow: var(--shadow-md);
-}
-.bx-header.is-scrolled .bx-header-inner {
-    transform: scale(0.985);
-}
-
-/* Theme Sun/Moon Morph */
-[data-theme-toggle] svg {
-    transition: transform 0.42s var(--ease-spring), opacity 0.25s ease;
-}
-[data-theme="light"] [data-theme-toggle] .bx-theme-moon svg { transform: rotate(0deg) scale(1); }
-[data-theme="dark"] [data-theme-toggle] .bx-theme-sun svg   { transform: rotate(90deg) scale(1); }
+/* 4. Sticky Shrinking Header & Animated Icons (hover devices only to keep mobile composite cheap) */
 @media (hover: hover) and (pointer: fine) {
+    .bx-header { transition: background-color 0.25s ease, border-color 0.25s ease; }
+    .bx-header.is-scrolled { box-shadow: var(--shadow-md); }
+    [data-theme-toggle] svg { transition: transform 0.35s var(--ease-spring); }
     [data-theme-toggle]:hover svg { transform: rotate(22deg) scale(1.1); }
-    .bx-lang-pill:hover svg {
-        transform: rotate(180deg);
-        transition: transform 0.45s var(--ease-spring);
-    }
+    .bx-lang-pill:hover svg { transform: rotate(180deg); transition: transform 0.45s var(--ease-spring); }
 }
 
 /* Heart Pop Micro-interaction */
@@ -175,27 +156,12 @@
     contain: paint;
 }
 .bx-hero-gradient-orb {
-    position: absolute;
-    width: min(420px, 80%);
-    height: min(420px, 80%);
-    border-radius: 50%;
-    pointer-events: none;
-    opacity: 0.24;
-    background: var(--grad-gold-rose);
-    filter: blur(55px);
-    animation: bxOrbFloat 11s ease-in-out infinite alternate;
-}
-@keyframes bxOrbFloat {
-    from { transform: translate3d(-12%, -10%, 0) scale(1); }
-    to   { transform: translate3d(18%, 14%, 0) scale(1.14); }
+    display: none;
 }
 
 .bx-hero-reveal {
-    animation: bxHeroReveal 0.65s var(--ease-spring) both;
-}
-@keyframes bxHeroReveal {
-    from { opacity: 0; transform: translateY(18px); }
-    to   { opacity: 1; transform: translateY(0); }
+    opacity: 1;
+    transform: none;
 }
 
 /* Floating 3D books/folders showcase in hero */
@@ -262,19 +228,7 @@
     opacity: 0.72;
 }
 
-/* 8. Animated Breadcrumb & Staggered Scroll Reveals */
-.bx-breadcrumb > * {
-    animation: bxCrumbIn 0.35s var(--ease-spring) backwards;
-}
-.bx-breadcrumb > *:nth-child(1) { animation-delay: 0.02s; }
-.bx-breadcrumb > *:nth-child(3) { animation-delay: 0.06s; }
-.bx-breadcrumb > *:nth-child(5) { animation-delay: 0.10s; }
-.bx-breadcrumb > *:nth-child(7) { animation-delay: 0.14s; }
-@keyframes bxCrumbIn {
-    from { opacity: 0; transform: translateX(-8px); }
-    to   { opacity: 1; transform: translateX(0); }
-}
-
+/* 8. Staggered Scroll Reveals without initial breadcrumb slide recalculation */
 [data-stagger] > .bx-reveal {
     transition-delay: calc(var(--stagger-i, 0) * 55ms);
 }

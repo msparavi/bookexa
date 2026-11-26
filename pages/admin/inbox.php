@@ -18,8 +18,8 @@ if ($status !== 'all') {
     $params[] = $status;
 }
 if ($q !== '') {
-    $like = '%' . $q . '%';
-    $where[] = '(cm.name LIKE ? OR cm.email LIKE ? OR COALESCE(cm.phone,"") LIKE ? OR cm.subject LIKE ? OR cm.message LIKE ?)';
+    $like = '%' . escape_like($q) . '%';
+    $where[] = "(cm.name LIKE ? ESCAPE '\\\\' OR cm.email LIKE ? ESCAPE '\\\\' OR COALESCE(cm.phone,\"\") LIKE ? ESCAPE '\\\\' OR cm.subject LIKE ? ESCAPE '\\\\' OR cm.message LIKE ? ESCAPE '\\\\')";
     array_push($params, $like, $like, $like, $like, $like);
 }
 $whereSql = $where ? (' WHERE ' . implode(' AND ', $where)) : '';

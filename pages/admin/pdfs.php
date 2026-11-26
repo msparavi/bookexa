@@ -14,8 +14,8 @@ $returnUrl = $_SERVER['REQUEST_URI'] ?? '/admin/pdfs';
 $where = [];
 $params = [];
 if ($q !== '') {
-    $where[] = '(i.title_bn LIKE ? OR i.title_en LIKE ? OR i.author_en LIKE ? OR i.author_bn LIKE ? OR i.slug LIKE ?)';
-    $like = '%' . $q . '%';
+    $where[] = "(i.title_bn LIKE ? ESCAPE '\\\\' OR i.title_en LIKE ? ESCAPE '\\\\' OR i.author_en LIKE ? ESCAPE '\\\\' OR i.author_bn LIKE ? ESCAPE '\\\\' OR i.slug LIKE ? ESCAPE '\\\\')";
+    $like = '%' . escape_like($q) . '%';
     array_push($params, $like, $like, $like, $like, $like);
 }
 if ($filterFolder !== null) {
@@ -96,18 +96,18 @@ $filterQueryPrefix = http_build_query(array_filter([
                     <option value="<?= $opt['id'] ?>" <?= $filterFolder === $opt['id'] ? 'selected' : '' ?>><?= e($opt['label']) ?></option>
                 <?php endforeach; ?>
             </select>
-            <select name="missing" class="bx-input" style="flex:1 1 160px;min-width:0;" aria-label="Missing info filter">
-                <option value=""><?= $lang === 'bn' ? 'সব তথ্য (কোনো ঘাটতি ফিল্টার নয়)' : 'All PDFs (Completeness)' ?></option>
-                <option value="any" <?= $missing === 'any' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'অসম্পূর্ণ তথ্য (কভার/ড্রাইভ/স্যাম্পল নেই)' : 'Missing Info (Any)' ?></option>
-                <option value="cover" <?= $missing === 'cover' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'কভার ছবি নেই' : 'Missing Cover' ?></option>
-                <option value="drive" <?= $missing === 'drive' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'Drive লিংক নেই (বা লোকাল)' : 'Missing / Local Drive Link' ?></option>
-                <option value="sample" <?= $missing === 'sample' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'নমুনা পৃষ্ঠা নেই' : 'Missing Sample' ?></option>
+            <select name="missing" class="bx-input" style="flex:1 1 150px;min-width:130px;" aria-label="Missing info filter">
+                <option value=""><?= $lang === 'bn' ? 'সব বই' : 'All PDFs' ?></option>
+                <option value="any" <?= $missing === 'any' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'তথ্য অসম্পূর্ণ' : 'Missing Info' ?></option>
+                <option value="cover" <?= $missing === 'cover' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'কভার নেই' : 'No Cover' ?></option>
+                <option value="drive" <?= $missing === 'drive' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'সোর্স/Drive নেই' : 'No Drive Link' ?></option>
+                <option value="sample" <?= $missing === 'sample' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'স্যাম্পল নেই' : 'No Sample' ?></option>
             </select>
-            <select name="sort" class="bx-input" style="flex:1 1 140px;min-width:0;">
-                <option value="newest" <?= $sort === 'newest' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'সর্বশেষ' : 'Newest First' ?></option>
+            <select name="sort" class="bx-input" style="flex:1 1 140px;min-width:125px;" aria-label="Sort order">
+                <option value="newest" <?= $sort === 'newest' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'সর্বশেষ' : 'Newest' ?></option>
                 <option value="title" <?= $sort === 'title' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'শিরোনাম (A-Z)' : 'Title (A-Z)' ?></option>
-                <option value="price_asc" <?= $sort === 'price_asc' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'মূল্য (কম → বেশি)' : 'Price (Low → High)' ?></option>
-                <option value="price_desc" <?= $sort === 'price_desc' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'মূল্য (বেশি → কম)' : 'Price (High → Low)' ?></option>
+                <option value="price_asc" <?= $sort === 'price_asc' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'দাম: কম → বেশি' : 'Price: Low–High' ?></option>
+                <option value="price_desc" <?= $sort === 'price_desc' ? 'selected' : '' ?>><?= $lang === 'bn' ? 'দাম: বেশি → কম' : 'Price: High–Low' ?></option>
             </select>
             <button type="submit" class="bx-btn bx-btn-primary"><?= $lang === 'bn' ? 'প্রয়োগ করুন' : 'Apply' ?></button>
             <?php if ($activeFiltersCount > 0): ?>
@@ -143,8 +143,8 @@ $filterQueryPrefix = http_build_query(array_filter([
                 <option value="delete"><?= $lang === 'bn' ? 'মুছে ফেলুন' : 'Delete Selected' ?></option>
             </select>
             <input type="number" step="0.01" min="0" name="bulk_price_val" form="bx-bulk-pdf-form" class="bx-input" style="flex:0 1 120px;min-width:95px;" placeholder="<?= e($lang === 'bn' ? '৳ বা %' : 'Price / %') ?>">
-            <select name="target_folder_id" form="bx-bulk-pdf-form" class="bx-input" style="flex:1 1 150px;min-width:0;">
-                <option value=""><?= $lang === 'bn' ? '(টার্গেট ফোল্ডার)' : '(Target folder if moving)' ?></option>
+            <select name="target_folder_id" form="bx-bulk-pdf-form" class="bx-input" style="flex:1 1 150px;min-width:0;" aria-label="Target folder">
+                <option value=""><?= $lang === 'bn' ? 'টার্গেট ফোল্ডার' : 'Target Folder' ?></option>
                 <?php foreach ($folderOptions as $opt): ?>
                     <option value="<?= $opt['id'] ?>"><?= e($opt['label']) ?></option>
                 <?php endforeach; ?>
@@ -154,7 +154,7 @@ $filterQueryPrefix = http_build_query(array_filter([
     </div>
 
     <div class="bx-table-wrap">
-        <table class="bx-table bx-mobile-cards">
+        <table class="bx-table bx-mobile-cards bx-pdfs-table">
             <thead>
                 <tr>
                     <th style="width:32px;"><input type="checkbox" id="bx-bulk-select-all" aria-label="Select all"></th>
@@ -233,15 +233,23 @@ $filterQueryPrefix = http_build_query(array_filter([
                                 </form>
                             </td>
                             <td class="bx-td-actions">
-                                <a href="<?= e(url('/admin/prepare-pages?id=' . $pid)) ?>" class="bx-btn bx-btn-primary" style="padding:8px 12px;font-size:0.84rem;"><?= $lang === 'bn' ? 'পৃষ্ঠা প্রস্তুত' : 'Prepare Pages' ?></a>
-                                <a href="<?= e($editLink) ?>" class="bx-btn bx-btn-outline" style="padding:8px 12px;font-size:0.84rem;"><?= $lang === 'bn' ? 'সম্পাদনা' : 'Edit' ?></a>
-                                <form method="post" action="<?= e(url('/admin/pdfs')) ?>" style="margin:0;">
-                                    <?= csrf_field() ?>
-                                    <input type="hidden" name="action" value="duplicate_pdf">
-                                    <input type="hidden" name="id" value="<?= $pid ?>">
-                                    <input type="hidden" name="_return" value="<?= e($returnUrl) ?>">
-                                    <button type="submit" class="bx-btn bx-btn-ghost" style="padding:8px 12px;font-size:0.84rem;"><?= $lang === 'bn' ? 'কপি' : 'Duplicate' ?></button>
-                                </form>
+                                <div class="bx-row-icon-actions">
+                                    <a href="<?= e(url('/admin/prepare-pages?id=' . $pid)) ?>" class="bx-btn bx-btn-primary bx-icon-btn" title="<?= e($lang === 'bn' ? 'পৃষ্ঠা প্রস্তুত করুন' : 'Prepare Pages') ?>" aria-label="<?= e($lang === 'bn' ? 'পৃষ্ঠা প্রস্তুত করুন' : 'Prepare Pages') ?>">
+                                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+                                    </a>
+                                    <a href="<?= e($editLink) ?>" class="bx-btn bx-btn-outline bx-icon-btn" title="<?= e($lang === 'bn' ? 'সম্পাদনা করুন' : 'Edit Book') ?>" aria-label="<?= e($lang === 'bn' ? 'সম্পাদনা করুন' : 'Edit Book') ?>">
+                                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+                                    </a>
+                                    <form method="post" action="<?= e(url('/admin/pdfs')) ?>" style="margin:0;">
+                                        <?= csrf_field() ?>
+                                        <input type="hidden" name="action" value="duplicate_pdf">
+                                        <input type="hidden" name="id" value="<?= $pid ?>">
+                                        <input type="hidden" name="_return" value="<?= e($returnUrl) ?>">
+                                        <button type="submit" class="bx-btn bx-btn-ghost bx-icon-btn" title="<?= e($lang === 'bn' ? 'কপি তৈরি করুন' : 'Duplicate Book') ?>" aria-label="<?= e($lang === 'bn' ? 'কপি তৈরি করুন' : 'Duplicate Book') ?>">
+                                            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                        </button>
+                                    </form>
+                                </div>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -336,6 +344,32 @@ $filterQueryPrefix = http_build_query(array_filter([
                 </div>
             </div>
 
+            <div class="bx-grid-2" style="gap:12px;margin-bottom:12px;">
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;">ISBN (Optional)</label>
+                    <input type="text" name="isbn" class="bx-input" maxlength="40" value="<?= e((string) ($editPdf['isbn'] ?? '')) ?>" placeholder="978-...">
+                </div>
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'প্রকাশক (Publisher)' : 'Publisher (Optional)' ?></label>
+                    <input type="text" name="publisher" class="bx-input" maxlength="160" value="<?= e((string) ($editPdf['publisher'] ?? '')) ?>">
+                </div>
+            </div>
+
+            <div class="bx-grid-3" style="gap:12px;margin-bottom:12px;">
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'সংস্করণ (Edition)' : 'Edition' ?></label>
+                    <input type="text" name="edition" class="bx-input" maxlength="80" value="<?= e((string) ($editPdf['edition'] ?? '')) ?>" placeholder="2026 Revised">
+                </div>
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'বইয়ের ভাষা' : 'Book Language' ?></label>
+                    <input type="text" name="book_language" class="bx-input" maxlength="60" value="<?= e((string) ($editPdf['book_language'] ?? '')) ?>" placeholder="Bangla / English">
+                </div>
+                <div>
+                    <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'ট্যাগ (কমা দিয়ে)' : 'Tags (comma separated)' ?></label>
+                    <input type="text" name="tags" class="bx-input" maxlength="255" value="<?= e((string) ($editPdf['tags'] ?? '')) ?>" placeholder="bcs, grammar, guide">
+                </div>
+            </div>
+
             <div style="margin-bottom:12px;">
                 <label style="display:block;font-weight:600;margin-bottom:4px;">
                     <?= $lang === 'bn' ? 'Google Drive লিংক (ঐচ্ছিক — কম্পিউটার থেকে পৃষ্ঠা প্রস্তুত করলে খালি রাখা যাবে)' : 'Google Drive URL (Optional — hidden server-side)' ?>
@@ -374,6 +408,61 @@ $filterQueryPrefix = http_build_query(array_filter([
                     <textarea name="description_en" class="bx-input" rows="2"><?= e((string) ($editPdf['description_en'] ?? '')) ?></textarea>
                 </div>
             </div>
+
+            <details style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-alt);">
+                <summary style="cursor:pointer;font-weight:700;font-size:0.9rem;"><?= $lang === 'bn' ? 'স্ট্রাকচার্ড বইয়ের তথ্য (সংক্ষিপ্ত উত্তর, কী শিখবেন, কাদের জন্য, FAQ)' : 'Structured Book Details (Short Answer, Learnings, Audience & FAQs)' ?></summary>
+                <div class="bx-grid-2" style="gap:10px;margin-top:10px;">
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;"><?= $lang === 'bn' ? 'সংক্ষিপ্ত উত্তর (বাংলা, ৪০–৬০ শব্দ)' : 'Short Direct Answer (BN, ~40-60 words)' ?></label>
+                        <textarea name="short_answer_bn" class="bx-input" rows="2" placeholder="বইটির মূল বিষয়বস্তু ও উপকারিতা ২-৩ বাক্যে"><?= e((string) ($editPdf['short_answer_bn'] ?? '')) ?></textarea>
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">Short Direct Answer (EN, ~40-60 words)</label>
+                        <textarea name="short_answer_en" class="bx-input" rows="2" placeholder="Concise 40-60 word direct summary shown below H1"><?= e((string) ($editPdf['short_answer_en'] ?? '')) ?></textarea>
+                    </div>
+                </div>
+                <div class="bx-grid-2" style="gap:10px;margin-top:10px;margin-bottom:10px;">
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">What You Will Learn (BN, 1 per line)</label>
+                        <textarea name="what_you_learn_bn" class="bx-input" rows="3"><?= e((string) ($editPdf['what_you_learn_bn'] ?? '')) ?></textarea>
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">What You Will Learn (EN, 1 per line)</label>
+                        <textarea name="what_you_learn_en" class="bx-input" rows="3"><?= e((string) ($editPdf['what_you_learn_en'] ?? '')) ?></textarea>
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">Who It Is For (BN)</label>
+                        <textarea name="who_for_bn" class="bx-input" rows="2"><?= e((string) ($editPdf['who_for_bn'] ?? '')) ?></textarea>
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">Who It Is For (EN)</label>
+                        <textarea name="who_for_en" class="bx-input" rows="2"><?= e((string) ($editPdf['who_for_en'] ?? '')) ?></textarea>
+                    </div>
+                </div>
+                <?php $bookFaqs = $editPdf ? content_parse_faqs_json($editPdf['faqs_json'] ?? null) : []; ?>
+                <div data-faq-wrap>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <strong style="font-size:0.84rem;">Book FAQs</strong>
+                        <button type="button" class="bx-btn bx-btn-outline bx-btn-sm" data-faq-add>+ Add FAQ</button>
+                    </div>
+                    <div data-faq-list>
+                        <?php foreach ($bookFaqs as $fq): ?>
+                            <div class="bx-faq-edit-row" data-faq-row="1">
+                                <div class="bx-grid-2" style="gap:8px;margin-bottom:6px;">
+                                    <input type="text" name="faq_q_bn[]" class="bx-input" value="<?= e($fq['q_bn']) ?>" placeholder="প্রশ্ন (বাংলা)">
+                                    <input type="text" name="faq_q_en[]" class="bx-input" value="<?= e($fq['q_en']) ?>" placeholder="Question (English)">
+                                </div>
+                                <div class="bx-grid-2" style="gap:8px;margin-bottom:6px;">
+                                    <textarea name="faq_a_bn[]" rows="2" class="bx-input" placeholder="উত্তর (বাংলা)"><?= e($fq['a_bn']) ?></textarea>
+                                    <textarea name="faq_a_en[]" rows="2" class="bx-input" placeholder="Answer (English)"><?= e($fq['a_en']) ?></textarea>
+                                </div>
+                                <input type="text" name="faq_url[]" class="bx-input" style="margin-bottom:6px;" value="<?= e((string) ($fq['url'] ?? '')) ?>" placeholder="Optional link path (e.g. /faq)">
+                                <button type="button" class="bx-btn bx-btn-ghost bx-btn-sm" data-faq-remove style="color:var(--rose-text);">Remove FAQ</button>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+                </div>
+            </details>
 
             <details style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-alt);">
                 <summary style="cursor:pointer;font-weight:700;font-size:0.9rem;"><?= $lang === 'bn' ? 'SEO মেটাডাটা (ঐচ্ছিক — স্বয়ংক্রিয় ফলব্যাক আছে)' : 'SEO Metadata (Optional — auto-fallback if blank)' ?></summary>

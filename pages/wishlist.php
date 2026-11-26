@@ -35,4 +35,39 @@ $lang = current_lang();
         </div>
         <?= render_browse_pagination('/wishlist', $filters, $page, $totalPages, $totalItems, 'bx-wishlist-grid') ?>
     <?php endif; ?>
+
+    <?php if (!empty($shopWishlistProducts)): ?>
+        <div class="bx-section-head" style="margin-top:34px;">
+            <div>
+                <h2 class="bx-h2"><?= $lang === 'bn' ? 'পছন্দের প্রিন্টেড বই (শপ)' : 'Saved Printed Books (Shop)' ?> (<?= e(num_localize(count($shopWishlistProducts))) ?>)</h2>
+            </div>
+            <a href="<?= e(url('/shop')) ?>" class="bx-btn bx-btn-outline bx-btn-sm"><?= icon('cart') ?> <?= e(t('portal_shop_cta')) ?></a>
+        </div>
+        <div class="bx-book-grid">
+            <?php foreach ($shopWishlistProducts as $sp):
+                $spId = (int) $sp['id'];
+                $eff = shop_product_effective_price($sp);
+                $cov = !empty($sp['cover_image']) ? asset((string) $sp['cover_image']) : asset('uploads/covers/cover-bangla.svg');
+                $surl = url('/shop/' . rawurlencode((string) $sp['slug']));
+            ?>
+                <div class="bx-book-3d">
+                    <article class="bx-book-card">
+                        <a href="<?= e($surl) ?>" class="bx-book-cover">
+                            <img src="<?= e($cov) ?>" alt="<?= e(bi($sp, 'title')) ?>" width="300" height="450" loading="lazy">
+                        </a>
+                        <button type="button" class="bx-wish-btn is-wished" data-shop-wish="<?= $spId ?>" aria-label="Remove from wishlist"><?= icon('heart') ?></button>
+                        <div class="bx-book-body">
+                            <a href="<?= e($surl) ?>" class="bx-book-title"><?= e(bi($sp, 'title')) ?></a>
+                            <div class="bx-book-foot">
+                                <span class="bx-price"><?= e(format_bdt($eff)) ?></span>
+                                <?php if ((int) $sp['stock'] > 0): ?>
+                                    <button type="button" class="bx-btn bx-btn-primary bx-btn-sm" data-add-cart="<?= $spId ?>"><?= icon('cart') ?> <?= $lang === 'bn' ? 'কার্ট' : 'Add' ?></button>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </article>
+                </div>
+            <?php endforeach; ?>
+        </div>
+    <?php endif; ?>
 </div>

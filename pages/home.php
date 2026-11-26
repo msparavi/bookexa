@@ -22,13 +22,13 @@ foreach (array_slice($folderTree['children']['root'] ?? [], 0, 6) as $rootFid) {
 }
 
 $newestItems = db_all(
-    "SELECT * FROM items WHERE is_active = 1 AND {$pubRaw} ORDER BY id DESC LIMIT 8"
+    "SELECT * FROM items WHERE is_active = 1 AND {$pubRaw} ORDER BY id DESC LIMIT 4"
 );
 $popularItems = db_all(
-    "SELECT *, (read_count + view_count) AS pop_score FROM items WHERE is_active = 1 AND {$pubRaw} ORDER BY pop_score DESC, is_featured DESC, id DESC LIMIT 8"
+    "SELECT *, (read_count + view_count) AS pop_score FROM items WHERE is_active = 1 AND {$pubRaw} ORDER BY pop_score DESC, is_featured DESC, id DESC LIMIT 4"
 );
 $freeItems = db_all(
-    "SELECT * FROM items WHERE is_active = 1 AND {$pubRaw} AND (is_free = 1 OR price <= 0) ORDER BY is_featured DESC, id DESC LIMIT 8"
+    "SELECT * FROM items WHERE is_active = 1 AND {$pubRaw} AND (is_free = 1 OR price <= 0) ORDER BY is_featured DESC, id DESC LIMIT 4"
 );
 
 $homeUser = current_user();
@@ -57,7 +57,8 @@ if ($homeUser) {
 }
 
 $totalFoldersStat = (int) ($folderTree['total_active'] ?? 0);
-$totalItemsStat   = (int) (db_one("SELECT COUNT(*) AS c FROM items WHERE is_active = 1 AND {$pubRaw}")['c'] ?? 0);
+$totalItemsStat   = (int) ($folderTree['total_items'] ?? (db_one("SELECT COUNT(*) AS c FROM items WHERE is_active = 1 AND {$pubRaw}")['c'] ?? 0));
+preload_items_card_meta(array_merge($newestItems, $popularItems, $freeItems, $continueReading, $recentlyViewed));
 $lang = current_lang();
 ?>
 
@@ -72,14 +73,28 @@ $lang = current_lang();
                             <?php if (!empty($bn['mobile_image'])): ?>
                                 <source media="(max-width: 720px)" srcset="<?= e(asset($bn['mobile_image'])) ?>">
                             <?php endif; ?>
-                            <img class="bx-slide-bg" src="<?= e(asset($bn['image'])) ?>" alt="<?= e(bi($bn, 'title')) ?>" width="1200" height="450" <?= $i === 0 ? 'fetchpriority="high"' : 'loading="lazy"' ?> decoding="async">
+                            <?php if (!empty($bn['mobile_image'])): ?>
+                                <img class="bx-slide-bg" src="<?= e(asset($bn['image'])) ?>" alt="<?= e(bi($bn, 'title')) ?>" width="1200" height="450" <?= $i === 0 ? 'fetchpriority="high"' : 'loading="lazy"' ?> decoding="async">
+                            <?php else: ?>
+                                <?= render_responsive_picture((string) $bn['image'], bi($bn, 'title'), [
+                                    'width'  => 1200,
+                                    'height' => 450,
+                                    'sizes'  => '(max-width: 720px) 100vw, 1200px',
+                                    'class'  => 'bx-slide-bg',
+                                    'is_lcp' => ($i === 0),
+                                ]) ?>
+                            <?php endif; ?>
                         </picture>
                         <div class="bx-slide-overlay"></div>
                         <div class="bx-slide-content">
                             <span class="bx-badge" style="background:rgba(255,255,255,0.16);color:#FAF7F2;margin-bottom:14px;">
                                 <?= icon('shield') ?> <?= e(t('hero_badge')) ?>
                             </span>
-                            <h1 class="bx-hero-reveal"><?= e(bi($bn, 'title')) ?></h1>
+                            <?php if ($i === 0): ?>
+                                <h1 class="bx-hero-reveal"><?= e(bi($bn, 'title')) ?></h1>
+                            <?php else: ?>
+                                <h2 class="bx-hero-reveal"><?= e(bi($bn, 'title')) ?></h2>
+                            <?php endif; ?>
                             <?php if (bi($bn, 'subtitle') !== ''): ?>
                                 <p><?= e(bi($bn, 'subtitle')) ?></p>
                             <?php endif; ?>
@@ -87,6 +102,7 @@ $lang = current_lang();
                                 <?= e(bi($bn, 'cta', t('portal_pdf_cta'))) ?> <?= icon('chevron-right') ?>
                             </a>
                         </div>
+                        <?php if ($i === 0): ?>
                         <div class="bx-hero-float-stage bx-hide-sm" style="position:relative;z-index:2;">
                             <div class="bx-float-obj obj-book-1">
                                 <?= icon('book', 'bx-icon-lg') ?>
@@ -101,6 +117,7 @@ $lang = current_lang();
                                 <small style="font-weight:700;">Folders</small>
                             </div>
                         </div>
+                        <?php endif; ?>
                     </div>
                 <?php endforeach; ?>
 
@@ -194,8 +211,8 @@ $lang = current_lang();
         </div>
 
         <div class="bx-folder-grid" data-stagger>
-            <?php foreach ($featuredFolders as $folder): ?>
-                <?= render_folder_card($folder, url('/pdf/' . rawurlencode($folder['slug']))) ?>
+            <?php foreach ($featuredFolders as $fIdx => $folder): ?>
+                <?= render_folder_card($folder, url('/pdf/' . rawurlencode($folder['slug'])), ['is_lcp' => ($fIdx < 2)]) ?>
             <?php endforeach; ?>
         </div>
     </div>

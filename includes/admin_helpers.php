@@ -9,9 +9,9 @@ const ADMIN_LOGIN_WINDOW_SEC   = 600;
 
 const ADMIN_ROLE_PERMISSIONS = [
     'superadmin' => ['*'],
-    'editor'     => ['dashboard', 'banners', 'folders', 'pdfs', 'prepare-pages', 'prepare-queue', 'import-csv', 'reviews', 'media', 'account-security'],
-    'support'    => ['dashboard', 'orders', 'inbox', 'users', 'account-security'],
-    'analyst'    => ['dashboard', 'reports', 'account-security'],
+    'editor'     => ['dashboard', 'banners', 'folders', 'pdfs', 'prepare-pages', 'prepare-queue', 'import-csv', 'reviews', 'media', 'shop-categories', 'shop-products', 'guides', 'hubs', 'seo', 'aeo', 'growth', 'account-security'],
+    'support'    => ['dashboard', 'orders', 'shop-orders', 'shop-packing-slip', 'inbox', 'users', 'account-security'],
+    'analyst'    => ['dashboard', 'reports', 'growth', 'account-security'],
 ];
 
 function admin_role_label(string $role): string
@@ -43,6 +43,7 @@ function admin_api_section(string $sub): string
         'api/test-drive-link', 'api/stream-source', 'api/upload-page', 'api/finalize-pages',
         'api/discard-staging', 'api/upload-auto-cover', 'api/prepare-queue-next' => 'prepare-pages',
         'api/import-csv-batch' => 'import-csv',
+        'api/shop-stock', 'api/shop-image-cover', 'api/shop-image-delete' => 'shop-products',
         'api/test-smtp', 'api/cdn-test', 'api/cdn-sync-batch', 'api/cdn-recheck', 'api/cdn-pull' => 'settings',
         default => 'dashboard',
     };
@@ -275,21 +276,38 @@ function attempt_admin_login(string $email, string $password): array
 
 function verify_admin_totp_and_login(int $adminId, string $code): array
 {
-    $ipKey = 'admin_2fa:id:' . $adminId . ':' . client_ip();
-    if (!admin_rate_limit_check($ipKey, 8, 600)) {
-        log_security_event('failed_admin_2fa', 'admin#' . $adminId, '2FA rate limit exceeded');
+    $rateKey = 'admin_2fa:admin:' . $adminId;
+    if (!admin_rate_limit_check($rateKey, 5, 600)) {
+        log_security_event('failed_admin_2fa', 'admin#' . $adminId, '2FA rate limit exceeded (5/10m)');
         return ['ok' => false, 'error' => current_lang() === 'bn' ? 'অনেকবার ভুল 2FA কোড। ১০ মিনিট পর চেষ্টা করুন।' : 'Too many invalid 2FA attempts. Wait 10 minutes.'];
     }
     $admin = db_one('SELECT * FROM admins WHERE id = ? AND is_active = 1 LIMIT 1', [$adminId]);
     if (!$admin || empty($admin['totp_enabled']) || empty($admin['totp_secret'])) {
         return ['ok' => false, 'error' => 'Invalid 2FA session.'];
     }
-    $ok = totp_verify_code((string) $admin['totp_secret'], $code, 1) || totp_consume_backup_code($adminId, $code);
-    if (!$ok) {
-        log_security_event('failed_admin_2fa', (string) $admin['email'], 'Invalid authenticator or backup code');
-        return ['ok' => false, 'error' => current_lang() === 'bn' ? 'অথেনটিকেটর বা ব্যাকআপ কোড সঠিক নয়।' : 'Invalid authenticator or backup code.'];
+    $wasPlain = false;
+    $plainSecret = totp_decrypt_secret((string) $admin['totp_secret'], $wasPlain);
+    if ($plainSecret === null) {
+        log_security_event('failed_admin_2fa', (string) $admin['email'], 'Unable to decrypt TOTP secret');
+        return ['ok' => false, 'error' => current_lang() === 'bn' ? '2FA কী পাঠোদ্ধার করা যায়নি।' : 'Invalid 2FA configuration.'];
     }
-    db_exec('DELETE FROM rate_limits WHERE rate_key = ?', [$ipKey]);
+    if ($wasPlain) {
+        db_exec('UPDATE admins SET totp_secret = ? WHERE id = ?', [totp_encrypt_secret($plainSecret), $adminId]);
+    }
+    $lastStep = isset($admin['totp_last_step']) && $admin['totp_last_step'] !== null ? (int) $admin['totp_last_step'] : null;
+    $matchedStep = totp_verify_with_step($plainSecret, $code, 1, 30, null, $lastStep);
+    $ok = false;
+    if ($matchedStep !== null) {
+        db_exec('UPDATE admins SET totp_last_step = ? WHERE id = ?', [$matchedStep, $adminId]);
+        $ok = true;
+    } elseif (totp_consume_backup_code($adminId, $code)) {
+        $ok = true;
+    }
+    if (!$ok) {
+        log_security_event('failed_admin_2fa', (string) $admin['email'], 'Invalid or replayed authenticator/backup code');
+        return ['ok' => false, 'error' => current_lang() === 'bn' ? 'অথেনটিকেটর বা ব্যাকআপ কোড সঠিক নয় বা ইতিমধ্যে ব্যবহৃত হয়েছে।' : 'Invalid, replayed, or expired authenticator/backup code.'];
+    }
+    db_exec('DELETE FROM rate_limits WHERE rate_key = ?', [$rateKey]);
     log_security_event('admin_2fa_success', (string) $admin['email'], 'Passed TOTP/backup challenge');
     complete_admin_login($admin);
     return ['ok' => true, 'admin' => $admin];
@@ -738,20 +756,19 @@ function save_cropped_base64_image(string $dataUri, string $subDir): ?string
     return $relPath;
 }
 
-function safe_admin_image_upload(string $inputName, string $subDir, int $maxWidth = 1000, bool $allowIco = false): ?string
+function safe_admin_upload_file_item(array $file, string $subDir, int $maxWidth = 1000, bool $allowIco = false): ?string
 {
     $subDir = trim($subDir, '/');
     if (!in_array($subDir, media_allowed_subdirs(), true)) {
         throw new RuntimeException('Disallowed upload subfolder.');
     }
-    if (empty($_FILES[$inputName]) || $_FILES[$inputName]['error'] === UPLOAD_ERR_NO_FILE) {
+    if ((int) ($file['error'] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
         return null;
     }
-    $file = $_FILES[$inputName];
-    if ($file['error'] !== UPLOAD_ERR_OK) {
+    if ((int) $file['error'] !== UPLOAD_ERR_OK) {
         throw new RuntimeException('Upload failed (code ' . $file['error'] . ').');
     }
-    if ($file['size'] > 4 * 1024 * 1024) {
+    if ((int) $file['size'] > 4 * 1024 * 1024) {
         throw new RuntimeException('Image exceeds maximum 4 MB limit.');
     }
     $origExt = strtolower((string) pathinfo((string) ($file['name'] ?? ''), PATHINFO_EXTENSION));
@@ -759,7 +776,7 @@ function safe_admin_image_upload(string $inputName, string $subDir, int $maxWidt
         throw new RuntimeException('SVG uploads are disabled for security. Allowed formats: JPG, PNG, WebP.');
     }
     $finfo = new finfo(FILEINFO_MIME_TYPE);
-    $mime = $finfo->file($file['tmp_name']);
+    $mime = $finfo->file((string) $file['tmp_name']);
     $allowed = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp'];
     if ($allowIco && ($mime === 'image/x-icon' || $mime === 'image/vnd.microsoft.icon')) {
         $allowed[$mime] = 'ico';
@@ -778,14 +795,14 @@ function safe_admin_image_upload(string $inputName, string $subDir, int $maxWidt
     $destAbs = APP_ROOT . '/' . $relPath;
 
     if ($ext !== 'ico' && extension_loaded('gd')) {
-        $info = @getimagesize($file['tmp_name']);
+        $info = @getimagesize((string) $file['tmp_name']);
         if ($info && $info[0] > $maxWidth) {
             $dstW = $maxWidth;
             $dstH = max(1, (int) round($info[1] * ($dstW / $info[0])));
             $srcImg = match ($mime) {
-                'image/jpeg' => @imagecreatefromjpeg($file['tmp_name']),
-                'image/png'  => @imagecreatefrompng($file['tmp_name']),
-                'image/webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp($file['tmp_name']) : false,
+                'image/jpeg' => @imagecreatefromjpeg((string) $file['tmp_name']),
+                'image/png'  => @imagecreatefrompng((string) $file['tmp_name']),
+                'image/webp' => function_exists('imagecreatefromwebp') ? @imagecreatefromwebp((string) $file['tmp_name']) : false,
                 default      => false,
             };
             if ($srcImg) {
@@ -805,17 +822,58 @@ function safe_admin_image_upload(string $inputName, string $subDir, int $maxWidt
                 imagedestroy($dstImg);
                 if ($saved) {
                     media_sync_push_one($relPath);
+                    if (function_exists('perf_optimize_image_variants')) {
+                        perf_optimize_image_variants($relPath, true);
+                    }
                     return $relPath;
                 }
             }
         }
     }
 
-    if (!move_uploaded_file($file['tmp_name'], $destAbs)) {
+    if (!move_uploaded_file((string) $file['tmp_name'], $destAbs)) {
         throw new RuntimeException('Failed to save uploaded image.');
     }
     media_sync_push_one($relPath);
+    if ($ext !== 'ico' && function_exists('perf_optimize_image_variants')) {
+        perf_optimize_image_variants($relPath, true);
+    }
     return $relPath;
+}
+
+function safe_admin_image_upload(string $inputName, string $subDir, int $maxWidth = 1000, bool $allowIco = false): ?string
+{
+    if (empty($_FILES[$inputName]) || $_FILES[$inputName]['error'] === UPLOAD_ERR_NO_FILE) {
+        return null;
+    }
+    return safe_admin_upload_file_item($_FILES[$inputName], $subDir, $maxWidth, $allowIco);
+}
+
+function safe_admin_multi_image_upload(string $inputName, string $subDir, int $maxWidth = 1000): array
+{
+    if (empty($_FILES[$inputName]) || !is_array($_FILES[$inputName]['name'] ?? null)) {
+        return [];
+    }
+    $uploaded = [];
+    $f = $_FILES[$inputName];
+    $count = count($f['name']);
+    for ($i = 0; $i < $count; $i++) {
+        if ((int) ($f['error'][$i] ?? UPLOAD_ERR_NO_FILE) === UPLOAD_ERR_NO_FILE) {
+            continue;
+        }
+        $item = [
+            'name'     => $f['name'][$i],
+            'type'     => $f['type'][$i] ?? '',
+            'tmp_name' => $f['tmp_name'][$i],
+            'error'    => $f['error'][$i],
+            'size'     => $f['size'][$i] ?? 0,
+        ];
+        $path = safe_admin_upload_file_item($item, $subDir, $maxWidth, false);
+        if ($path !== null) {
+            $uploaded[] = $path;
+        }
+    }
+    return $uploaded;
 }
 
 function is_folder_descendant(int $candidateParentId, int $folderId): bool

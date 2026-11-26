@@ -26,8 +26,8 @@ if ($filter === 'suspicious') {
     $secWhere[] = "(event_type LIKE '%anomaly%' OR event_type LIKE '%suspend%' OR event_type LIKE '%quota%')";
 }
 if ($q !== '') {
-    $like = '%' . $q . '%';
-    $secWhere[] = '(event_type LIKE ? OR COALESCE(identifier, "") LIKE ? OR ip_address LIKE ? OR COALESCE(details, "") LIKE ?)';
+    $like = '%' . escape_like($q) . '%';
+    $secWhere[] = "(event_type LIKE ? ESCAPE '\\\\' OR COALESCE(identifier, \"\") LIKE ? ESCAPE '\\\\' OR ip_address LIKE ? ESCAPE '\\\\' OR COALESCE(details, \"\") LIKE ? ESCAPE '\\\\')";
     array_push($secParams, $like, $like, $like, $like);
 }
 $secWhereSql = $secWhere ? (' WHERE ' . implode(' AND ', $secWhere)) : '';
@@ -51,8 +51,8 @@ if ($filter === 'suspicious') {
     $readWhere[] = "(rl.action LIKE '%anomaly%' OR rl.action LIKE '%suspend%' OR rl.action LIKE '%quota%' OR rl.action LIKE '%kicked%')";
 }
 if ($q !== '') {
-    $like = '%' . $q . '%';
-    $readWhere[] = '(rl.action LIKE ? OR rl.ip_address LIKE ? OR COALESCE(rl.details, "") LIKE ? OR COALESCE(u.name, "") LIKE ? OR COALESCE(u.email, "") LIKE ? OR COALESCE(i.title_en, "") LIKE ?)';
+    $like = '%' . escape_like($q) . '%';
+    $readWhere[] = "(rl.action LIKE ? ESCAPE '\\\\' OR rl.ip_address LIKE ? ESCAPE '\\\\' OR COALESCE(rl.details, \"\") LIKE ? ESCAPE '\\\\' OR COALESCE(u.name, \"\") LIKE ? ESCAPE '\\\\' OR COALESCE(u.email, \"\") LIKE ? ESCAPE '\\\\' OR COALESCE(i.title_en, \"\") LIKE ? ESCAPE '\\\\')";
     array_push($readParams, $like, $like, $like, $like, $like, $like);
 }
 $readWhereSql = $readWhere ? (' WHERE ' . implode(' AND ', $readWhere)) : '';
@@ -74,8 +74,8 @@ $readLogs = $filter === 'contact' ? [] : db_all(
 $conWhere  = [];
 $conParams = [];
 if ($q !== '') {
-    $like = '%' . $q . '%';
-    $conWhere[] = '(name LIKE ? OR email LIKE ? OR COALESCE(phone, "") LIKE ? OR subject LIKE ? OR message LIKE ? OR ip LIKE ?)';
+    $like = '%' . escape_like($q) . '%';
+    $conWhere[] = "(name LIKE ? ESCAPE '\\\\' OR email LIKE ? ESCAPE '\\\\' OR COALESCE(phone, \"\") LIKE ? ESCAPE '\\\\' OR subject LIKE ? ESCAPE '\\\\' OR message LIKE ? ESCAPE '\\\\' OR ip LIKE ? ESCAPE '\\\\')";
     array_push($conParams, $like, $like, $like, $like, $like, $like);
 }
 $conWhereSql = $conWhere ? (' WHERE ' . implode(' AND ', $conWhere)) : '';
@@ -95,8 +95,8 @@ $newContactCount = (int) (db_one("SELECT COUNT(*) AS c FROM contact_messages WHE
 $missSql = 'SELECT * FROM search_misses';
 $missParams = [];
 if ($q !== '') {
-    $missSql .= ' WHERE query_text LIKE ?';
-    $missParams[] = '%' . $q . '%';
+    $missSql .= " WHERE query_text LIKE ? ESCAPE '\\\\'";
+    $missParams[] = '%' . escape_like($q) . '%';
 }
 $missSql .= ' ORDER BY hits DESC, last_searched_at DESC LIMIT 25';
 $searchMisses = db_all($missSql, $missParams);

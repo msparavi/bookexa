@@ -52,16 +52,15 @@ function admin_return_url(string $fallback, bool $stripFormParams = true): strin
     if ($raw === '') {
         return $fallback;
     }
-    $parts = @parse_url($raw);
-    if (!is_array($parts) || !empty($parts['host']) || !empty($parts['scheme'])) {
+    $safe = safe_internal_path($raw, $fallback);
+    if ($safe === $fallback) {
+        return $fallback;
+    }
+    $parts = @parse_url($safe);
+    if (!is_array($parts)) {
         return $fallback;
     }
     $path = (string) ($parts['path'] ?? '');
-    if (BASE_PATH !== '' && str_starts_with($path, BASE_PATH . '/')) {
-        $path = substr($path, strlen(BASE_PATH));
-    } elseif ($path === BASE_PATH) {
-        $path = '/';
-    }
     if (!str_starts_with($path, '/admin') || str_starts_with($path, '/admin/login') || str_starts_with($path, '/admin/logout')) {
         return $fallback;
     }
@@ -161,8 +160,8 @@ function admin_orders_filter_query(): array
         )";
     }
     if ($q !== '') {
-        $like = '%' . $q . '%';
-        $where[] = '(o.order_code LIKE ? OR o.transaction_id LIKE ? OR o.sender_number LIKE ? OR COALESCE(u.phone, "") LIKE ? OR COALESCE(o.coupon_code, "") LIKE ? OR u.name LIKE ? OR u.email LIKE ? OR i.title_bn LIKE ? OR i.title_en LIKE ?)';
+        $like = '%' . escape_like($q) . '%';
+        $where[] = "(o.order_code LIKE ? ESCAPE '\\\\' OR o.transaction_id LIKE ? ESCAPE '\\\\' OR o.sender_number LIKE ? ESCAPE '\\\\' OR COALESCE(u.phone, \"\") LIKE ? ESCAPE '\\\\' OR COALESCE(o.coupon_code, \"\") LIKE ? ESCAPE '\\\\' OR u.name LIKE ? ESCAPE '\\\\' OR u.email LIKE ? ESCAPE '\\\\' OR i.title_bn LIKE ? ESCAPE '\\\\' OR i.title_en LIKE ? ESCAPE '\\\\')";
         array_push($params, $like, $like, $like, $like, $like, $like, $like, $like, $like);
     }
 
@@ -177,6 +176,76 @@ function admin_orders_filter_query(): array
         'itemId'    => $itemId,
         'q'         => $q,
         'whereSql'  => $whereSql,
+        'params'    => $params,
+    ];
+}
+
+function admin_shop_orders_filter_query(): array
+{
+    $status    = (string) ($_GET['status'] ?? 'all');
+    $method    = (string) ($_GET['method'] ?? 'all');
+    $retFilter = (string) ($_GET['return_st'] ?? 'all');
+    $dupsOnly  = ($_GET['dups'] ?? '') === '1';
+    $dateFrom  = trim((string) ($_GET['date_from'] ?? ''));
+    $dateTo    = trim((string) ($_GET['date_to'] ?? ''));
+    $q         = trim((string) ($_GET['q'] ?? ''));
+
+    if ($status !== 'all' && !in_array($status, SHOP_ORDER_STATUSES, true)) {
+        $status = 'all';
+    }
+    if (!in_array($method, ['all', 'cod', 'bkash', 'nagad', 'rocket', 'bkash_tokenized', 'aamarpay', 'uddoktapay'], true)) {
+        $method = 'all';
+    }
+    if (!in_array($retFilter, ['all', 'requested', 'approved', 'rejected'], true)) {
+        $retFilter = 'all';
+    }
+    if ($dateFrom !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateFrom)) {
+        $dateFrom = '';
+    }
+    if ($dateTo !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateTo)) {
+        $dateTo = '';
+    }
+
+    $where = [];
+    $params = [];
+    if ($status !== 'all') {
+        $where[] = 'so.status = ?';
+        $params[] = $status;
+    }
+    if ($method !== 'all') {
+        $where[] = 'so.payment_method = ?';
+        $params[] = $method;
+    }
+    if ($retFilter !== 'all') {
+        $where[] = 'so.return_status = ?';
+        $params[] = $retFilter;
+    }
+    if ($dateFrom !== '') {
+        $where[] = 'DATE(so.created_at) >= ?';
+        $params[] = $dateFrom;
+    }
+    if ($dateTo !== '') {
+        $where[] = 'DATE(so.created_at) <= ?';
+        $params[] = $dateTo;
+    }
+    if ($dupsOnly) {
+        $where[] = "(so.transaction_id IS NOT NULL AND so.transaction_id <> '' AND EXISTS (SELECT 1 FROM shop_orders so2 WHERE so2.id <> so.id AND so2.transaction_id = so.transaction_id))";
+    }
+    if ($q !== '') {
+        $like = '%' . escape_like($q) . '%';
+        $where[] = "(so.order_code LIKE ? ESCAPE '\\\\' OR so.customer_name LIKE ? ESCAPE '\\\\' OR so.customer_phone LIKE ? ESCAPE '\\\\' OR COALESCE(so.customer_email,'') LIKE ? ESCAPE '\\\\' OR COALESCE(so.transaction_id,'') LIKE ? ESCAPE '\\\\' OR COALESCE(so.sender_number,'') LIKE ? ESCAPE '\\\\' OR COALESCE(so.tracking_code,'') LIKE ? ESCAPE '\\\\')";
+        array_push($params, $like, $like, $like, $like, $like, $like, $like);
+    }
+
+    return [
+        'status'    => $status,
+        'method'    => $method,
+        'retFilter' => $retFilter,
+        'dupsOnly'  => $dupsOnly,
+        'dateFrom'  => $dateFrom,
+        'dateTo'    => $dateTo,
+        'q'         => $q,
+        'whereSql'  => $where ? (' WHERE ' . implode(' AND ', $where)) : '',
         'params'    => $params,
     ];
 }
@@ -265,13 +334,16 @@ function handle_admin_routes(string $route): never
     $admin = require_admin();
 
     // 3b. Protected Payment Screenshot Viewer (Orders Permission Only)
-    if ($sub === 'payment-proof' || $sub === 'api/payment-proof') {
-        if (!admin_can($admin, 'orders')) {
-            log_security_event('admin_perm_denied', (string) $admin['email'], 'Denied payment-proof for role ' . $admin['role']);
+    if ($sub === 'payment-proof' || $sub === 'api/payment-proof' || $sub === 'shop-payment-proof') {
+        $isShopProof = ($sub === 'shop-payment-proof');
+        $needPerm = $isShopProof ? 'shop-orders' : 'orders';
+        if (!admin_can($admin, $needPerm)) {
+            log_security_event('admin_perm_denied', (string) $admin['email'], 'Denied ' . $sub . ' for role ' . $admin['role']);
             render_error_page(403);
         }
         $orderId = (int) ($_GET['order_id'] ?? 0);
-        $ord = $orderId > 0 ? db_one('SELECT payment_screenshot FROM orders WHERE id = ? LIMIT 1', [$orderId]) : null;
+        $tbl = $isShopProof ? 'shop_orders' : 'orders';
+        $ord = $orderId > 0 ? db_one("SELECT payment_screenshot FROM {$tbl} WHERE id = ? LIMIT 1", [$orderId]) : null;
         $absPath = $ord ? resolve_payment_screenshot_path((string) ($ord['payment_screenshot'] ?? '')) : null;
         if (!$absPath) {
             render_error_page(404);
@@ -739,14 +811,23 @@ function handle_admin_routes(string $route): never
     }
 
     // 5. Section Routing & Role Enforcement
-    $allowedSections = ['dashboard', 'banners', 'folders', 'pdfs', 'import-csv', 'prepare-pages', 'prepare-queue', 'orders', 'inbox', 'coupons', 'reviews', 'reports', 'users', 'logs', 'media', 'system-health', 'settings', 'admins', 'account-security'];
+    $allowedSections = [
+        'dashboard', 'banners', 'folders', 'pdfs', 'import-csv', 'prepare-pages', 'prepare-queue',
+        'orders', 'shop-categories', 'shop-products', 'shop-orders', 'shop-packing-slip', 'delivery-settings',
+        'inbox', 'coupons', 'reviews', 'guides', 'hubs', 'seo', 'aeo', 'growth', 'reports', 'users', 'logs', 'media', 'system-health', 'updates', 'settings', 'admins', 'account-security',
+    ];
     $section = in_array($sub, $allowedSections, true) ? $sub : 'dashboard';
     $viewMap = [
-        'prepare-pages'    => 'prepare_pages',
-        'prepare-queue'    => 'prepare_queue',
-        'import-csv'       => 'import_csv',
-        'system-health'    => 'system_health',
-        'account-security' => 'account_security',
+        'prepare-pages'     => 'prepare_pages',
+        'prepare-queue'     => 'prepare_queue',
+        'import-csv'        => 'import_csv',
+        'shop-categories'   => 'shop_categories',
+        'shop-products'     => 'shop_products',
+        'shop-orders'       => 'shop_orders',
+        'shop-packing-slip' => 'shop_packing_slip',
+        'delivery-settings' => 'delivery_settings',
+        'system-health'     => 'system_health',
+        'account-security'  => 'account_security',
     ];
     $sectionFile = $viewMap[$section] ?? $section;
 
@@ -771,6 +852,96 @@ function handle_admin_routes(string $route): never
         fputcsv($out, ['Academic/SSC/Bangla', 'এসএসসি বাংলা ১ম পত্র গাইড', 'SSC Bangla 1st Paper Guide', 'Prof. Karim', '120', '0', '5', 'https://drive.google.com/file/d/1A2B3C4D5E6F7G8H9I0J/view?usp=sharing', 'Complete board exam preparation guide.']);
         fputcsv($out, ['Academic/Admission', 'ফ্রি সাধারণ জ্ঞান নোট', 'Free General Knowledge Digest', 'Bookexa Editorial', '0', '1', '0', '', 'Free revision summary notes.']);
         fclose($out);
+        exit;
+    }
+
+    // 5a-growth. Indexable URLs & Newsletter CSV Exports (/admin/growth?download=...)
+    if ($section === 'growth' && isset($_GET['download'])) {
+        $dl = (string) $_GET['download'];
+        if ($dl === 'indexable-urls-csv') {
+            header('Content-Type: text/csv; charset=UTF-8');
+            header('Content-Disposition: attachment; filename="bookexa-indexable-urls-' . date('Ymd') . '.csv"');
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF");
+            fputcsv($out, ['section', 'language', 'url', 'path', 'lastmod']);
+            foreach (growth_indexable_urls_catalog() as $row) {
+                fputcsv($out, [$row['section'], $row['lang'], $row['url'], $row['path'], $row['lastmod']]);
+            }
+            fclose($out);
+            exit;
+        }
+        if ($dl === 'newsletter-csv') {
+            header('Content-Type: text/csv; charset=UTF-8');
+            header('Content-Disposition: attachment; filename="bookexa-newsletter-' . date('Ymd') . '.csv"');
+            $out = fopen('php://output', 'w');
+            fwrite($out, "\xEF\xBB\xBF");
+            fputcsv($out, ['id', 'email', 'lang', 'status', 'source_path', 'verified_at', 'created_at']);
+            foreach (db_all('SELECT id, email, lang, status, source_path, verified_at, created_at FROM newsletter_subscribers ORDER BY id DESC') as $sub) {
+                fputcsv($out, [$sub['id'], $sub['email'], $sub['lang'], $sub['status'], $sub['source_path'], $sub['verified_at'], $sub['created_at']]);
+            }
+            fclose($out);
+            exit;
+        }
+    }
+
+    // 5d. Physical Shop Products Sample CSV & Export, and Shop Orders CSV Export & Packing Slip
+    if ($section === 'shop-products' && ($_GET['sample'] ?? '') === '1') {
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="bookexa-shop-products-sample.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['category_slug', 'title_bn', 'title_en', 'author_bn', 'author_en', 'publisher', 'isbn', 'sku', 'price', 'discount_price', 'stock', 'weight_grams', 'description_bn', 'description_en', 'is_featured', 'is_active']);
+        fputcsv($out, ['academic-books', 'এসএসসি পদার্থবিজ্ঞান গাইড (প্রিন্টেড)', 'SSC Physics Print Edition', 'ড. হাসান', 'Dr. Hasan', 'Bookexa Press', '978-984-0001-01', 'BX-PHY-01', '320', '275', '25', '420', 'অধ্যায়ভিত্তিক সৃজনশীল ও বহুনির্বাচনি প্রশ্নোত্তর।', 'Complete printed edition with chapter exercises.', '1', '1']);
+        fclose($out);
+        exit;
+    }
+
+    if ($section === 'shop-products' && ($_GET['export'] ?? '') === 'csv') {
+        $rows = db_all(
+            'SELECT p.*, sc.slug AS category_slug FROM products p LEFT JOIN shop_categories sc ON sc.id = p.category_id ORDER BY p.id DESC'
+        );
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="bookexa-shop-products-' . date('Ymd') . '.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['ID', 'Category Slug', 'Slug', 'SKU', 'ISBN', 'Title (BN)', 'Title (EN)', 'Author (EN)', 'Publisher', 'Price', 'Discount Price', 'Stock', 'Weight (g)', 'Sales Count', 'Featured', 'Active']);
+        foreach ($rows as $r) {
+            fputcsv($out, [
+                (int) $r['id'], $r['category_slug'], $r['slug'], $r['sku'], $r['isbn'],
+                $r['title_bn'], $r['title_en'], $r['author_en'], $r['publisher'],
+                $r['price'], $r['discount_price'], (int) $r['stock'], (int) $r['weight_grams'],
+                (int) $r['sales_count'], (int) $r['is_featured'], (int) $r['is_active'],
+            ]);
+        }
+        fclose($out);
+        exit;
+    }
+
+    if ($section === 'shop-orders' && ($_GET['export'] ?? '') === 'csv') {
+        $flt = admin_shop_orders_filter_query();
+        $rows = db_all(
+            "SELECT so.* FROM shop_orders so LEFT JOIN users u ON u.id = so.user_id {$flt['whereSql']} ORDER BY so.id DESC",
+            $flt['params']
+        );
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="bookexa-shop-orders-' . date('Ymd-His') . '.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['Order Code', 'Created At', 'Customer Name', 'Phone', 'Email', 'District', 'Area', 'Address', 'Subtotal', 'Coupon', 'Discount', 'Delivery Fee', 'Total', 'Method', 'Sender', 'TrxID', 'Status', 'Courier', 'Tracking Code', 'Return Status']);
+        foreach ($rows as $r) {
+            fputcsv($out, [
+                $r['order_code'], $r['created_at'], $r['customer_name'], $r['customer_phone'], $r['customer_email'],
+                $r['district'], $r['delivery_area'], $r['shipping_address'], $r['subtotal_amount'], $r['coupon_code'],
+                $r['discount_amount'], $r['delivery_fee'], $r['total_amount'], $r['payment_method'], $r['sender_number'],
+                $r['transaction_id'], $r['status'], $r['courier_name'], $r['tracking_code'], $r['return_status'],
+            ]);
+        }
+        fclose($out);
+        exit;
+    }
+
+    if ($section === 'shop-packing-slip') {
+        require APP_ROOT . '/pages/admin/shop_packing_slip.php';
         exit;
     }
 
@@ -889,6 +1060,67 @@ function handle_admin_routes(string $route): never
         exit;
     }
 
+    // 5d. Physical Shop Products Sample CSV & Export, and Shop Orders CSV Export & Packing Slip
+    if ($section === 'shop-products' && ($_GET['sample'] ?? '') === '1') {
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="bookexa-shop-products-sample.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['category_slug', 'title_bn', 'title_en', 'author_bn', 'author_en', 'publisher', 'isbn', 'sku', 'price', 'discount_price', 'stock', 'weight_grams', 'description_bn', 'description_en', 'is_featured', 'is_active']);
+        fputcsv($out, ['academic-books', 'এসএসসি পদার্থবিজ্ঞান গাইড (প্রিন্টেড)', 'SSC Physics Print Edition', 'ড. হাসান', 'Dr. Hasan', 'Bookexa Press', '978-984-0001-01', 'BX-PHY-01', '320', '275', '25', '420', 'অধ্যায়ভিত্তিক সৃজনশীল ও বহুনির্বাচনি প্রশ্নোত্তর।', 'Complete printed edition with chapter exercises.', '1', '1']);
+        fclose($out);
+        exit;
+    }
+
+    if ($section === 'shop-products' && ($_GET['export'] ?? '') === 'csv') {
+        $rows = db_all(
+            'SELECT p.*, sc.slug AS category_slug FROM products p LEFT JOIN shop_categories sc ON sc.id = p.category_id ORDER BY p.id DESC'
+        );
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="bookexa-shop-products-' . date('Ymd') . '.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['ID', 'Category Slug', 'Slug', 'SKU', 'ISBN', 'Title (BN)', 'Title (EN)', 'Author (EN)', 'Publisher', 'Price', 'Discount Price', 'Stock', 'Weight (g)', 'Sales Count', 'Featured', 'Active']);
+        foreach ($rows as $r) {
+            fputcsv($out, [
+                (int) $r['id'], $r['category_slug'], $r['slug'], $r['sku'], $r['isbn'],
+                $r['title_bn'], $r['title_en'], $r['author_en'], $r['publisher'],
+                $r['price'], $r['discount_price'], (int) $r['stock'], (int) $r['weight_grams'],
+                (int) $r['sales_count'], (int) $r['is_featured'], (int) $r['is_active'],
+            ]);
+        }
+        fclose($out);
+        exit;
+    }
+
+    if ($section === 'shop-orders' && ($_GET['export'] ?? '') === 'csv') {
+        $flt = admin_shop_orders_filter_query();
+        $rows = db_all(
+            "SELECT so.* FROM shop_orders so LEFT JOIN users u ON u.id = so.user_id {$flt['whereSql']} ORDER BY so.id DESC",
+            $flt['params']
+        );
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="bookexa-shop-orders-' . date('Ymd-His') . '.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['Order Code', 'Created At', 'Customer Name', 'Phone', 'Email', 'District', 'Area', 'Address', 'Subtotal', 'Coupon', 'Discount', 'Delivery Fee', 'Total', 'Method', 'Sender', 'TrxID', 'Status', 'Courier', 'Tracking Code', 'Return Status']);
+        foreach ($rows as $r) {
+            fputcsv($out, [
+                $r['order_code'], $r['created_at'], $r['customer_name'], $r['customer_phone'], $r['customer_email'],
+                $r['district'], $r['delivery_area'], $r['shipping_address'], $r['subtotal_amount'], $r['coupon_code'],
+                $r['discount_amount'], $r['delivery_fee'], $r['total_amount'], $r['payment_method'], $r['sender_number'],
+                $r['transaction_id'], $r['status'], $r['courier_name'], $r['tracking_code'], $r['return_status'],
+            ]);
+        }
+        fclose($out);
+        exit;
+    }
+
+    if ($section === 'shop-packing-slip') {
+        require APP_ROOT . '/pages/admin/shop_packing_slip.php';
+        exit;
+    }
+
     // 5c. Filtered Orders CSV Export
     if ($section === 'orders' && ($_GET['export'] ?? '') === 'csv') {
         $flt = admin_orders_filter_query();
@@ -918,8 +1150,70 @@ function handle_admin_routes(string $route): never
         exit;
     }
 
-    // Lazy background media queue sync on admin GET traffic
+    // 5d. Physical Shop Products Sample CSV & Export, and Shop Orders CSV Export & Packing Slip
+    if ($section === 'shop-products' && ($_GET['sample'] ?? '') === '1') {
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="bookexa-shop-products-sample.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['category_slug', 'title_bn', 'title_en', 'author_bn', 'author_en', 'publisher', 'isbn', 'sku', 'price', 'discount_price', 'stock', 'weight_grams', 'description_bn', 'description_en', 'is_featured', 'is_active']);
+        fputcsv($out, ['academic-books', 'এসএসসি পদার্থবিজ্ঞান গাইড (প্রিন্টেড)', 'SSC Physics Print Edition', 'ড. হাসান', 'Dr. Hasan', 'Bookexa Press', '978-984-0001-01', 'BX-PHY-01', '320', '275', '25', '420', 'অধ্যায়ভিত্তিক সৃজনশীল ও বহুনির্বাচনি প্রশ্নোত্তর।', 'Complete printed edition with chapter exercises.', '1', '1']);
+        fclose($out);
+        exit;
+    }
+
+    if ($section === 'shop-products' && ($_GET['export'] ?? '') === 'csv') {
+        $rows = db_all(
+            'SELECT p.*, sc.slug AS category_slug FROM products p LEFT JOIN shop_categories sc ON sc.id = p.category_id ORDER BY p.id DESC'
+        );
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="bookexa-shop-products-' . date('Ymd') . '.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['ID', 'Category Slug', 'Slug', 'SKU', 'ISBN', 'Title (BN)', 'Title (EN)', 'Author (EN)', 'Publisher', 'Price', 'Discount Price', 'Stock', 'Weight (g)', 'Sales Count', 'Featured', 'Active']);
+        foreach ($rows as $r) {
+            fputcsv($out, [
+                (int) $r['id'], $r['category_slug'], $r['slug'], $r['sku'], $r['isbn'],
+                $r['title_bn'], $r['title_en'], $r['author_en'], $r['publisher'],
+                $r['price'], $r['discount_price'], (int) $r['stock'], (int) $r['weight_grams'],
+                (int) $r['sales_count'], (int) $r['is_featured'], (int) $r['is_active'],
+            ]);
+        }
+        fclose($out);
+        exit;
+    }
+
+    if ($section === 'shop-orders' && ($_GET['export'] ?? '') === 'csv') {
+        $flt = admin_shop_orders_filter_query();
+        $rows = db_all(
+            "SELECT so.* FROM shop_orders so LEFT JOIN users u ON u.id = so.user_id {$flt['whereSql']} ORDER BY so.id DESC",
+            $flt['params']
+        );
+        header('Content-Type: text/csv; charset=UTF-8');
+        header('Content-Disposition: attachment; filename="bookexa-shop-orders-' . date('Ymd-His') . '.csv"');
+        $out = fopen('php://output', 'w');
+        fwrite($out, "\xEF\xBB\xBF");
+        fputcsv($out, ['Order Code', 'Created At', 'Customer Name', 'Phone', 'Email', 'District', 'Area', 'Address', 'Subtotal', 'Coupon', 'Discount', 'Delivery Fee', 'Total', 'Method', 'Sender', 'TrxID', 'Status', 'Courier', 'Tracking Code', 'Return Status']);
+        foreach ($rows as $r) {
+            fputcsv($out, [
+                $r['order_code'], $r['created_at'], $r['customer_name'], $r['customer_phone'], $r['customer_email'],
+                $r['district'], $r['delivery_area'], $r['shipping_address'], $r['subtotal_amount'], $r['coupon_code'],
+                $r['discount_amount'], $r['delivery_fee'], $r['total_amount'], $r['payment_method'], $r['sender_number'],
+                $r['transaction_id'], $r['status'], $r['courier_name'], $r['tracking_code'], $r['return_status'],
+            ]);
+        }
+        fclose($out);
+        exit;
+    }
+
+    if ($section === 'shop-packing-slip') {
+        require APP_ROOT . '/pages/admin/shop_packing_slip.php';
+        exit;
+    }
+
+    // Lazy background media queue sync & automatic database migrations on admin GET traffic
     if ($_SERVER['REQUEST_METHOD'] === 'GET' && empty($_GET['export'])) {
+        migration_lazy_tick($sub !== 'updates');
         media_lazy_sync_tick();
     }
 
@@ -935,11 +1229,26 @@ function handle_admin_routes(string $route): never
             'toggle_user_block' => 'users', 'force_logout_user' => 'users', 'unsuspend_user' => 'users',
             'contact_status' => 'inbox', 'inbox_reply' => 'inbox', 'inbox_delete' => 'inbox',
             'review_order' => 'orders', 'bulk_orders' => 'orders', 'save_order_note' => 'orders',
+            'save_shop_category' => 'shop-categories', 'delete_shop_category' => 'shop-categories',
+            'save_shop_product' => 'shop-products', 'delete_shop_product' => 'shop-products',
+            'adjust_shop_stock' => 'shop-products', 'set_shop_product_cover' => 'shop-products',
+            'delete_shop_product_image' => 'shop-products', 'preview_shop_csv' => 'shop-products', 'import_shop_csv' => 'shop-products',
+            'shop_order_update' => 'shop-orders', 'shop_bulk_orders' => 'shop-orders', 'shop_handle_return' => 'shop-orders',
+            'save_delivery_settings' => 'delivery-settings',
             'save_coupon' => 'coupons', 'toggle_coupon' => 'coupons', 'delete_coupon' => 'coupons',
             'review_moderate' => 'reviews', 'review_delete' => 'reviews',
+            'shop_review_moderate' => 'reviews', 'shop_review_delete' => 'reviews',
+            'save_guide' => 'guides', 'delete_guide' => 'guides', 'save_author_seo' => 'guides',
+            'save_hub' => 'hubs', 'delete_hub' => 'hubs', 'save_editorial_faq' => 'hubs', 'delete_editorial_faq' => 'hubs',
+            'save_seo_settings' => 'seo', 'save_seo_redirect' => 'seo', 'delete_seo_redirect' => 'seo', 'clear_seo_404' => 'seo', 'test_structured_data' => 'seo', 'purge_seo_cache' => 'seo',
+            'save_aeo_policy' => 'aeo',
+            'save_growth_analytics' => 'growth', 'save_search_console' => 'growth',
+            'indexnow_flush_now' => 'growth', 'indexnow_submit_sitemap' => 'growth', 'indexnow_regen_key' => 'growth',
+            'run_link_check_now' => 'growth', 'resolve_seo_alert' => 'growth', 'save_growth_dnt' => 'growth',
             'save_settings' => 'settings', 'regenerate_cron_key' => 'settings',
             'clean_cache' => 'system-health', 'run_daily_backup_now' => 'system-health',
             'download_db_backup' => 'system-health', 'export_site_package' => 'admins',
+            'run_migration' => 'updates', 'run_all_migrations' => 'updates', 'backup_before_update' => 'updates',
             'cdn_single_sync' => 'media',
             'save_admin' => 'admins', 'toggle_admin' => 'admins', 'save_ip_allowlist' => 'admins',
             'change_my_password' => 'account-security', 'start_totp_setup' => 'account-security',
@@ -956,6 +1265,19 @@ function handle_admin_routes(string $route): never
             log_security_event('admin_perm_denied', (string) $admin['email'], 'Support role attempted mutating user action: ' . $action);
             flash('danger', admin_bi('সাপোর্ট রোলের জন্য ব্যবহারকারী পরিবর্তন অনুমোদিত নয় (শুধুমাত্র দেখুন)।', 'Support role has read-only access to users.'));
             redirect('/admin/users');
+        }
+        $demoBlockedActions = [
+            'delete_banner', 'delete_folder', 'delete_pdf', 'inbox_delete',
+            'review_delete', 'shop_review_delete', 'delete_coupon',
+            'delete_shop_category', 'delete_shop_product', 'delete_shop_product_image',
+            'toggle_user_block', 'force_logout_user',
+            'save_admin', 'toggle_admin', 'save_ip_allowlist',
+            'change_my_password', 'disable_totp', 'signout_other_sessions', 'signout_all_sessions',
+            'regenerate_cron_key', 'download_db_backup', 'export_site_package', 'clean_cache',
+        ];
+        if (is_demo_mode() && (in_array($action, $demoBlockedActions, true) || ($action === 'bulk_pdfs' && ($_POST['bulk_action'] ?? '') === 'delete'))) {
+            flash('warning', admin_bi('ডেমো মোডে ধ্বংসাত্মক অ্যাকশন বা নিরাপত্তা পরিবর্তন নিষ্ক্রিয় করা আছে।', 'Demo Mode is active: destructive edits, deletions, exports, and security mutations are disabled.'));
+            redirect(admin_return_url('/admin/' . ($section === 'dashboard' ? '' : $section)));
         }
 
         try {
@@ -1052,6 +1374,11 @@ function handle_admin_routes(string $route): never
                 $slugInput = trim((string) ($_POST['slug'] ?? ''));
                 $descBn = trim((string) ($_POST['description_bn'] ?? ''));
                 $descEn = trim((string) ($_POST['description_en'] ?? ''));
+                $introBn = content_sanitize_rich_html((string) ($_POST['intro_bn'] ?? ''));
+                $introEn = content_sanitize_rich_html((string) ($_POST['intro_en'] ?? ''));
+                $whoForBn = trim((string) ($_POST['who_for_bn'] ?? '')) ?: null;
+                $whoForEn = trim((string) ($_POST['who_for_en'] ?? '')) ?: null;
+                $faqsJson = content_serialize_faqs_post($_POST);
                 $seoTitleBn = mb_substr(trim((string) ($_POST['seo_title_bn'] ?? '')), 0, 220) ?: null;
                 $seoTitleEn = mb_substr(trim((string) ($_POST['seo_title_en'] ?? '')), 0, 220) ?: null;
                 $seoDescBn  = mb_substr(trim((string) ($_POST['seo_description_bn'] ?? '')), 0, 320) ?: null;
@@ -1084,9 +1411,9 @@ function handle_admin_routes(string $route): never
                 if ($id === null) {
                     $thumb = $uploadedThumb ?: 'uploads/folders/academic.svg';
                     db_exec(
-                        'INSERT INTO folders (parent_id, slug, name_bn, name_en, description_bn, description_en, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, thumbnail, accent_color, sort_order, is_active, publish_at, unpublish_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $thumb, $accent, $sortOrder, $isActive, $publishAt, $unpublishAt]
+                        'INSERT INTO folders (parent_id, slug, name_bn, name_en, description_bn, description_en, intro_bn, intro_en, who_for_bn, who_for_en, faqs_json, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, thumbnail, accent_color, sort_order, is_active, publish_at, unpublish_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $introBn ?: null, $introEn ?: null, $whoForBn, $whoForEn, $faqsJson, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $thumb, $accent, $sortOrder, $isActive, $publishAt, $unpublishAt]
                     );
                     $newId = (int) db()->lastInsertId();
                     prune_self_slug_history('folder', folder_path_string($newId));
@@ -1098,8 +1425,8 @@ function handle_admin_routes(string $route): never
                     $oldThumb = $existing['thumbnail'] ?? null;
                     $thumb = $uploadedThumb ?: ($oldThumb ?: 'uploads/folders/academic.svg');
                     db_exec(
-                        'UPDATE folders SET parent_id=?, slug=?, name_bn=?, name_en=?, description_bn=?, description_en=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, thumbnail=?, accent_color=?, sort_order=?, is_active=?, publish_at=?, unpublish_at=? WHERE id=?',
-                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $thumb, $accent, $sortOrder, $isActive, $publishAt, $unpublishAt, $id]
+                        'UPDATE folders SET parent_id=?, slug=?, name_bn=?, name_en=?, description_bn=?, description_en=?, intro_bn=?, intro_en=?, who_for_bn=?, who_for_en=?, faqs_json=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, thumbnail=?, accent_color=?, sort_order=?, is_active=?, publish_at=?, unpublish_at=? WHERE id=?',
+                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $introBn ?: null, $introEn ?: null, $whoForBn, $whoForEn, $faqsJson, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $thumb, $accent, $sortOrder, $isActive, $publishAt, $unpublishAt, $id]
                     );
                     record_folder_subtree_slug_changes($oldPaths);
                     if ($uploadedThumb && $oldThumb && $oldThumb !== $thumb) {
@@ -1108,7 +1435,10 @@ function handle_admin_routes(string $route): never
                     log_admin_action($admin, 'folder_update', 'folder', $id, $nameEn . ' (/' . $slug . ')');
                     flash('success', admin_bi('ফোল্ডার হালনাগাদ হয়েছে।', 'Folder updated.'));
                 }
+                aeo_save_entity_extra('folders', (int) ($id ?? $newId ?? 0), $_POST);
                 invalidate_folder_and_sitemap_cache();
+                growth_indexnow_queue_entity('folder', (int) ($id ?? $newId ?? 0), $id === null ? 'publish' : 'update');
+                growth_indexnow_flush(false);
                 redirect(admin_return_url('/admin/folders'));
             }
 
@@ -1159,11 +1489,17 @@ function handle_admin_routes(string $route): never
                         }
                     }
                 }
+                $oldF = db_one('SELECT slug FROM folders WHERE id = ?', [$id]);
+                $delSlug = (string) ($oldF['slug'] ?? '');
                 db_exec('DELETE FROM folders WHERE id = ?', [$id]);
                 foreach (array_unique($thumbsToCheck) as $oldT) {
                     media_try_delete_unused_image($oldT);
                 }
                 invalidate_folder_and_sitemap_cache();
+                if ($delSlug !== '') {
+                    growth_indexnow_queue_entity('folder', $delSlug, 'delete');
+                    growth_indexnow_flush(false);
+                }
                 log_admin_action($admin, 'folder_delete', 'folder', $id, 'Deleted folder #' . $id);
                 flash('success', admin_bi('ফোল্ডার মুছে ফেলা হয়েছে।', 'Folder deleted.'));
                 redirect(admin_return_url('/admin/folders'));
@@ -1178,8 +1514,23 @@ function handle_admin_routes(string $route): never
                 $slugInput = trim((string) ($_POST['slug'] ?? ''));
                 $authorBn = trim((string) ($_POST['author_bn'] ?? ''));
                 $authorEn = trim((string) ($_POST['author_en'] ?? ''));
+                $isbn     = mb_substr(trim((string) ($_POST['isbn'] ?? '')), 0, 40) ?: null;
+                $publisher = mb_substr(trim((string) ($_POST['publisher'] ?? '')), 0, 160) ?: null;
+                $edition  = mb_substr(trim((string) ($_POST['edition'] ?? '')), 0, 80) ?: null;
+                $bookLang = mb_substr(trim((string) ($_POST['book_language'] ?? '')), 0, 60) ?: null;
+                $itemTags = mb_substr(trim((string) ($_POST['tags'] ?? '')), 0, 255) ?: null;
                 $descBn = trim((string) ($_POST['description_bn'] ?? ''));
                 $descEn = trim((string) ($_POST['description_en'] ?? ''));
+                $learnBn = trim((string) ($_POST['what_you_learn_bn'] ?? '')) ?: null;
+                $learnEn = trim((string) ($_POST['what_you_learn_en'] ?? '')) ?: null;
+                $whoBn   = trim((string) ($_POST['who_for_bn'] ?? '')) ?: null;
+                $whoEn   = trim((string) ($_POST['who_for_en'] ?? '')) ?: null;
+                $bookFaqsJson = content_serialize_faqs_post($_POST);
+                $introBn = content_sanitize_rich_html((string) ($_POST['intro_bn'] ?? ''));
+                $introEn = content_sanitize_rich_html((string) ($_POST['intro_en'] ?? ''));
+                $whoForBn = trim((string) ($_POST['who_for_bn'] ?? '')) ?: null;
+                $whoForEn = trim((string) ($_POST['who_for_en'] ?? '')) ?: null;
+                $faqsJson = content_serialize_faqs_post($_POST);
                 $seoTitleBn = mb_substr(trim((string) ($_POST['seo_title_bn'] ?? '')), 0, 220) ?: null;
                 $seoTitleEn = mb_substr(trim((string) ($_POST['seo_title_en'] ?? '')), 0, 220) ?: null;
                 $seoDescBn  = mb_substr(trim((string) ($_POST['seo_description_bn'] ?? '')), 0, 320) ?: null;
@@ -1229,9 +1580,9 @@ function handle_admin_routes(string $route): never
                 if ($id === null) {
                     $cover = $uploadedCover ?: 'uploads/covers/cover-bangla.svg';
                     db_exec(
-                        'INSERT INTO items (folder_id, slug, title_bn, title_en, author_bn, author_en, description_bn, description_en, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, cover, drive_link, sample_drive_link, price, original_price, is_free, sample_pages, total_pages, is_featured, is_active, publish_at, unpublish_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        [$folderId, $slug, $titleBn, $titleEn, $authorBn, $authorEn, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $cover, $validDrive, $validSampleDrive, $price, $origPrice, $isFree, $samplePages, $totalPages, $isFeatured, $isActive, $publishAt, $unpublishAt]
+                        'INSERT INTO items (folder_id, slug, title_bn, title_en, author_bn, author_en, isbn, publisher, edition, book_language, tags, faqs_json, description_bn, description_en, what_you_learn_bn, what_you_learn_en, who_for_bn, who_for_en, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, cover, drive_link, sample_drive_link, price, original_price, is_free, sample_pages, total_pages, is_featured, is_active, publish_at, unpublish_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$folderId, $slug, $titleBn, $titleEn, $authorBn, $authorEn, $isbn, $publisher, $edition, $bookLang, $itemTags, $bookFaqsJson, $descBn, $descEn, $learnBn, $learnEn, $whoBn, $whoEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $cover, $validDrive, $validSampleDrive, $price, $origPrice, $isFree, $samplePages, $totalPages, $isFeatured, $isActive, $publishAt, $unpublishAt]
                     );
                     $newId = (int) db()->lastInsertId();
                     prune_self_slug_history('item', $slug);
@@ -1246,8 +1597,8 @@ function handle_admin_routes(string $route): never
                     $oldCover = $existing['cover'] ?? null;
                     $cover = $uploadedCover ?: ($oldCover ?: 'uploads/covers/cover-bangla.svg');
                     db_exec(
-                        'UPDATE items SET folder_id=?, slug=?, title_bn=?, title_en=?, author_bn=?, author_en=?, description_bn=?, description_en=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, cover=?, drive_link=?, sample_drive_link=?, price=?, original_price=?, is_free=?, sample_pages=?, total_pages=?, is_featured=?, is_active=?, publish_at=?, unpublish_at=? WHERE id=?',
-                        [$folderId, $slug, $titleBn, $titleEn, $authorBn, $authorEn, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $cover, $validDrive, $validSampleDrive, $price, $origPrice, $isFree, $samplePages, $totalPages, $isFeatured, $isActive, $publishAt, $unpublishAt, $id]
+                        'UPDATE items SET folder_id=?, slug=?, title_bn=?, title_en=?, author_bn=?, author_en=?, isbn=?, publisher=?, edition=?, book_language=?, tags=?, faqs_json=?, description_bn=?, description_en=?, what_you_learn_bn=?, what_you_learn_en=?, who_for_bn=?, who_for_en=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, cover=?, drive_link=?, sample_drive_link=?, price=?, original_price=?, is_free=?, sample_pages=?, total_pages=?, is_featured=?, is_active=?, publish_at=?, unpublish_at=? WHERE id=?',
+                        [$folderId, $slug, $titleBn, $titleEn, $authorBn, $authorEn, $isbn, $publisher, $edition, $bookLang, $itemTags, $bookFaqsJson, $descBn, $descEn, $learnBn, $learnEn, $whoBn, $whoEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $cover, $validDrive, $validSampleDrive, $price, $origPrice, $isFree, $samplePages, $totalPages, $isFeatured, $isActive, $publishAt, $unpublishAt, $id]
                     );
                     if ($oldSlug !== '' && $oldSlug !== $slug) {
                         record_slug_history('item', $id, $oldSlug);
@@ -1259,7 +1610,18 @@ function handle_admin_routes(string $route): never
                     log_admin_action($admin, 'pdf_update', 'item', $id, $titleEn);
                     flash('success', admin_bi('PDF তথ্য হালনাগাদ হয়েছে।', 'PDF item updated.'));
                 }
+                aeo_save_entity_extra('items', (int) ($id ?? $newId ?? 0), $_POST);
                 invalidate_folder_and_sitemap_cache();
+                if ($isActive === 1 && $folderId !== null && $id === null) {
+                    growth_notify_folder_subscribers((int) $folderId, [
+                        'id'       => $newId ?? 0,
+                        'slug'     => $slug,
+                        'title_bn' => $titleBn,
+                        'title_en' => $titleEn,
+                    ]);
+                }
+                growth_indexnow_queue_entity('book', $slug, $id === null ? 'publish' : 'update');
+                growth_indexnow_flush(false);
                 redirect(admin_return_url('/admin/pdfs'));
             }
 
@@ -1302,12 +1664,16 @@ function handle_admin_routes(string $route): never
 
             if ($action === 'delete_pdf') {
                 $id = (int) ($_POST['id'] ?? 0);
-                $existing = db_one('SELECT cover FROM items WHERE id = ?', [$id]);
+                $existing = db_one('SELECT slug, cover FROM items WHERE id = ?', [$id]);
                 db_exec('DELETE FROM items WHERE id = ?', [$id]);
                 if ($existing && !empty($existing['cover'])) {
                     media_try_delete_unused_image((string) $existing['cover']);
                 }
                 invalidate_folder_and_sitemap_cache();
+                if (!empty($existing['slug'])) {
+                    growth_indexnow_queue_entity('book', (string) $existing['slug'], 'delete');
+                    growth_indexnow_flush(false);
+                }
                 log_admin_action($admin, 'pdf_delete', 'item', $id, 'Deleted PDF #' . $id);
                 flash('success', admin_bi('PDF মুছে ফেলা হয়েছে।', 'PDF deleted.'));
                 redirect(admin_return_url('/admin/pdfs'));
@@ -1639,15 +2005,914 @@ function handle_admin_routes(string $route): never
                 redirect(admin_return_url('/admin/reviews'));
             }
 
+            if ($action === 'shop_review_moderate') {
+                $id = (int) ($_POST['id'] ?? 0);
+                $status = (string) ($_POST['status'] ?? '');
+                if (!in_array($status, ['approved', 'pending', 'hidden'], true)) {
+                    throw new RuntimeException('Invalid review status.');
+                }
+                db_exec('UPDATE product_reviews SET status = ? WHERE id = ?', [$status, $id]);
+                log_admin_action($admin, 'shop_review_' . $status, 'product_review', $id, 'Set status ' . $status);
+                flash('success', admin_bi('পণ্যের রিভিউ অবস্থা পরিবর্তিত হয়েছে।', 'Product review status updated.'));
+                redirect(admin_return_url('/admin/reviews'));
+            }
+
+            if ($action === 'shop_review_delete') {
+                $id = (int) ($_POST['id'] ?? 0);
+                db_exec('DELETE FROM product_reviews WHERE id = ?', [$id]);
+                log_admin_action($admin, 'shop_review_delete', 'product_review', $id, 'Deleted product review #' . $id);
+                flash('success', admin_bi('পণ্যের রিভিউ মুছে ফেলা হয়েছে।', 'Product review deleted.'));
+                redirect(admin_return_url('/admin/reviews'));
+            }
+
+            // --- Physical Shop Categories ---
+            if ($action === 'save_shop_category') {
+                $id = max(0, (int) ($_POST['id'] ?? 0));
+                $parentId = !empty($_POST['parent_id']) && (int) $_POST['parent_id'] > 0 ? (int) $_POST['parent_id'] : null;
+                $nameBn = trim((string) ($_POST['name_bn'] ?? ''));
+                $nameEn = trim((string) ($_POST['name_en'] ?? ''));
+                $descBn = trim((string) ($_POST['description_bn'] ?? ''));
+                $descEn = trim((string) ($_POST['description_en'] ?? ''));
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+                $isActive = isset($_POST['is_active']) ? 1 : 0;
+                $slug = slugify((string) ($_POST['slug'] ?? '') ?: ($nameEn !== '' ? $nameEn : $nameBn));
+
+                if ($nameBn === '' || $nameEn === '') {
+                    throw new RuntimeException(admin_bi('বাংলা ও ইংরেজি উভয় নাম লিখুন।', 'Both Bangla and English names are required.'));
+                }
+                if ($id > 0 && $parentId === $id) {
+                    $parentId = null;
+                }
+                $dup = $id > 0
+                    ? db_one('SELECT id FROM shop_categories WHERE slug = ? AND id != ? LIMIT 1', [$slug, $id])
+                    : db_one('SELECT id FROM shop_categories WHERE slug = ? LIMIT 1', [$slug]);
+                if ($dup) {
+                    $slug .= '-' . substr(bin2hex(random_bytes(2)), 0, 4);
+                }
+
+                $thumb = safe_admin_image_upload('thumbnail', 'products', 600);
+                if ($id === 0) {
+                    db_exec(
+                        'INSERT INTO shop_categories (parent_id, slug, name_bn, name_en, description_bn, description_en, thumbnail, sort_order, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $thumb, $sortOrder, $isActive]
+                    );
+                    $nid = (int) db()->lastInsertId();
+                    log_admin_action($admin, 'shop_cat_create', 'shop_category', $nid, $nameEn);
+                    flash('success', admin_bi('ক্যাটাগরি তৈরি হয়েছে।', 'Shop category created.'));
+                } else {
+                    $existing = db_one('SELECT thumbnail FROM shop_categories WHERE id = ?', [$id]);
+                    $finalThumb = $thumb ?? ($existing['thumbnail'] ?? null);
+                    db_exec(
+                        'UPDATE shop_categories SET parent_id=?, slug=?, name_bn=?, name_en=?, description_bn=?, description_en=?, thumbnail=?, sort_order=?, is_active=? WHERE id=?',
+                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $finalThumb, $sortOrder, $isActive, $id]
+                    );
+                    if ($thumb && !empty($existing['thumbnail']) && $existing['thumbnail'] !== $thumb) {
+                        media_try_delete_unused_image((string) $existing['thumbnail']);
+                    }
+                    log_admin_action($admin, 'shop_cat_update', 'shop_category', $id, $nameEn);
+                    flash('success', admin_bi('ক্যাটাগরি আপডেট হয়েছে।', 'Shop category updated.'));
+                }
+                redirect('/admin/shop-categories');
+            }
+
+            if ($action === 'delete_shop_category') {
+                $id = max(0, (int) ($_POST['id'] ?? 0));
+                $old = $id > 0 ? db_one('SELECT thumbnail FROM shop_categories WHERE id = ?', [$id]) : null;
+                db_exec('DELETE FROM shop_categories WHERE id = ?', [$id]);
+                if ($old && !empty($old['thumbnail'])) {
+                    media_try_delete_unused_image((string) $old['thumbnail']);
+                }
+                log_admin_action($admin, 'shop_cat_delete', 'shop_category', $id, 'Deleted shop category #' . $id);
+                flash('success', admin_bi('ক্যাটাগরি মুছে ফেলা হয়েছে।', 'Shop category deleted.'));
+                redirect('/admin/shop-categories');
+            }
+
+            // --- Physical Shop Products ---
+            if ($action === 'save_shop_product') {
+                $id = max(0, (int) ($_POST['id'] ?? 0));
+                $catId = !empty($_POST['category_id']) && (int) $_POST['category_id'] > 0 ? (int) $_POST['category_id'] : null;
+                $titleBn = trim((string) ($_POST['title_bn'] ?? ''));
+                $titleEn = trim((string) ($_POST['title_en'] ?? ''));
+                $authorBn = trim((string) ($_POST['author_bn'] ?? ''));
+                $authorEn = trim((string) ($_POST['author_en'] ?? ''));
+                $publisher = trim((string) ($_POST['publisher'] ?? ''));
+                $isbn = trim((string) ($_POST['isbn'] ?? ''));
+                $sku = trim((string) ($_POST['sku'] ?? ''));
+                $skuVal = $sku !== '' ? $sku : null;
+                $price = max(0.0, (float) ($_POST['price'] ?? 0));
+                $discRaw = trim((string) ($_POST['discount_price'] ?? ''));
+                $disc = ($discRaw !== '' && (float) $discRaw > 0 && (float) $discRaw < $price) ? round((float) $discRaw, 2) : null;
+                $stock = max(0, (int) ($_POST['stock'] ?? 0));
+                $lowThreshold = max(0, (int) ($_POST['low_stock_threshold'] ?? 5));
+                $weight = max(10, (int) ($_POST['weight_grams'] ?? 300));
+                $descBn = trim((string) ($_POST['description_bn'] ?? ''));
+                $descEn = trim((string) ($_POST['description_en'] ?? ''));
+                $introBn = content_sanitize_rich_html((string) ($_POST['intro_bn'] ?? ''));
+                $introEn = content_sanitize_rich_html((string) ($_POST['intro_en'] ?? ''));
+                $whoForBn = trim((string) ($_POST['who_for_bn'] ?? '')) ?: null;
+                $whoForEn = trim((string) ($_POST['who_for_en'] ?? '')) ?: null;
+                $faqsJson = content_serialize_faqs_post($_POST);
+                $seoTitleBn = mb_substr(trim((string) ($_POST['seo_title_bn'] ?? '')), 0, 220) ?: null;
+                $seoTitleEn = mb_substr(trim((string) ($_POST['seo_title_en'] ?? '')), 0, 220) ?: null;
+                $seoDescBn  = mb_substr(trim((string) ($_POST['seo_description_bn'] ?? '')), 0, 320) ?: null;
+                $seoDescEn  = mb_substr(trim((string) ($_POST['seo_description_en'] ?? '')), 0, 320) ?: null;
+                $isActive = isset($_POST['is_active']) ? 1 : 0;
+                $isFeatured = isset($_POST['is_featured']) ? 1 : 0;
+                $slug = slugify((string) ($_POST['slug'] ?? '') ?: ($titleEn !== '' ? $titleEn : $titleBn));
+
+                if ($titleBn === '' || $titleEn === '' || $price <= 0) {
+                    throw new RuntimeException(admin_bi('বইয়ের বাংলা/ইংরেজি নাম ও সঠিক মূল্য দিন।', 'Title (BN & EN) and positive price are required.'));
+                }
+                $dupSlug = $id > 0
+                    ? db_one('SELECT id FROM products WHERE slug = ? AND id != ? LIMIT 1', [$slug, $id])
+                    : db_one('SELECT id FROM products WHERE slug = ? LIMIT 1', [$slug]);
+                if ($dupSlug) {
+                    $slug .= '-' . substr(bin2hex(random_bytes(2)), 0, 4);
+                }
+                if ($skuVal !== null) {
+                    $dupSku = $id > 0
+                        ? db_one('SELECT id FROM products WHERE sku = ? AND id != ? LIMIT 1', [$skuVal, $id])
+                        : db_one('SELECT id FROM products WHERE sku = ? LIMIT 1', [$skuVal]);
+                    if ($dupSku) {
+                        throw new RuntimeException(admin_bi('এই SKU ইতিমধ্যে আরেকটি বইয়ে ব্যবহৃত হয়েছে।', 'SKU already exists on another product.'));
+                    }
+                }
+
+                $uploads = safe_admin_multi_image_upload('gallery_images', 'products', 900);
+                if ($id === 0) {
+                    $cover = $uploads[0] ?? null;
+                    db_exec(
+                        'INSERT INTO products (category_id, slug, sku, title_bn, title_en, author_bn, author_en, publisher, isbn, cover_image, description_bn, description_en, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, price, discount_price, stock, low_stock_threshold, weight_grams, is_active, is_featured)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$catId, $slug, $skuVal, $titleBn, $titleEn, $authorBn, $authorEn, $publisher, $isbn, $cover, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $price, $disc, $stock, $lowThreshold, $weight, $isActive, $isFeatured]
+                    );
+                    $pid = (int) db()->lastInsertId();
+                    prune_self_slug_history('product', $slug);
+                    foreach ($uploads as $idx => $path) {
+                        db_exec(
+                            'INSERT INTO product_images (product_id, image_path, sort_order, is_cover) VALUES (?, ?, ?, ?)',
+                            [$pid, $path, $idx, $idx === 0 ? 1 : 0]
+                        );
+                    }
+                    if ($stock > 0) {
+                        db_exec(
+                            'INSERT INTO product_stock_logs (product_id, admin_id, change_qty, stock_before, stock_after, reason) VALUES (?, ?, ?, 0, ?, "Initial stock")',
+                            [$pid, (int) $admin['id'], $stock, $stock]
+                        );
+                    }
+                    log_admin_action($admin, 'shop_prod_create', 'product', $pid, $titleEn);
+                    flash('success', admin_bi('নতুন শপ বই যুক্ত হয়েছে।', 'Product added to shop.'));
+                } else {
+                    $old = db_one('SELECT slug, cover_image, stock FROM products WHERE id = ?', [$id]);
+                    if (!$old) {
+                        throw new RuntimeException('Product not found.');
+                    }
+                    $oldSlug = (string) ($old['slug'] ?? '');
+                    $oldStock = (int) $old['stock'];
+                    $finalCover = !empty($old['cover_image']) ? (string) $old['cover_image'] : ($uploads[0] ?? null);
+                    db_exec(
+                        'UPDATE products SET category_id=?, slug=?, sku=?, title_bn=?, title_en=?, author_bn=?, author_en=?, publisher=?, isbn=?, cover_image=?, description_bn=?, description_en=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, price=?, discount_price=?, stock=?, low_stock_threshold=?, weight_grams=?, is_active=?, is_featured=? WHERE id=?',
+                        [$catId, $slug, $skuVal, $titleBn, $titleEn, $authorBn, $authorEn, $publisher, $isbn, $finalCover, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $price, $disc, $stock, $lowThreshold, $weight, $isActive, $isFeatured, $id]
+                    );
+                    if ($oldSlug !== '' && $oldSlug !== $slug) {
+                        record_slug_history('product', $id, $oldSlug);
+                    }
+                    prune_self_slug_history('product', $slug);
+                    if ($uploads) {
+                        $maxSort = (int) (db_one('SELECT COALESCE(MAX(sort_order), 0) AS m FROM product_images WHERE product_id = ?', [$id])['m'] ?? 0);
+                        $hasCover = (bool) db_one('SELECT id FROM product_images WHERE product_id = ? AND is_cover = 1 LIMIT 1', [$id]);
+                        foreach ($uploads as $idx => $path) {
+                            $makeCover = (!$hasCover && $idx === 0) ? 1 : 0;
+                            db_exec(
+                                'INSERT INTO product_images (product_id, image_path, sort_order, is_cover) VALUES (?, ?, ?, ?)',
+                                [$id, $path, $maxSort + $idx + 1, $makeCover]
+                            );
+                        }
+                    }
+                    if ($stock !== $oldStock) {
+                        db_exec(
+                            'INSERT INTO product_stock_logs (product_id, admin_id, change_qty, stock_before, stock_after, reason) VALUES (?, ?, ?, ?, ?, "Edited product stock")',
+                            [$id, (int) $admin['id'], $stock - $oldStock, $oldStock, $stock]
+                        );
+                    }
+                    log_admin_action($admin, 'shop_prod_update', 'product', $id, $titleEn);
+                    flash('success', admin_bi('পণ্য আপডেট হয়েছে।', 'Product updated.'));
+                }
+                invalidate_folder_and_sitemap_cache(false);
+                growth_indexnow_queue_entity('product', $slug, $id === null ? 'publish' : 'update');
+                growth_indexnow_flush(false);
+                redirect('/admin/shop-products');
+            }
+
+            if ($action === 'adjust_shop_stock') {
+                $pid = max(0, (int) ($_POST['product_id'] ?? 0));
+                $delta = (int) ($_POST['delta'] ?? 0);
+                $reason = trim((string) ($_POST['reason'] ?? 'Manual adjustment'));
+                if ($pid <= 0 || $delta === 0) {
+                    throw new RuntimeException(admin_bi('সঠিক স্টক পরিবর্তনের সংখ্যা লিখুন।', 'Enter a valid non-zero stock adjustment.'));
+                }
+                $res = shop_adjust_stock($pid, $delta, $reason, (int) $admin['id']);
+                if (!$res['ok']) {
+                    throw new RuntimeException((string) $res['message']);
+                }
+                log_admin_action($admin, 'shop_stock_adjust', 'product', $pid, "Delta {$delta}: {$res['before']} -> {$res['after']}");
+                flash('success', admin_bi('স্টক হালনাগাদ হয়েছে।', 'Product stock adjusted (' . $res['before'] . ' → ' . $res['after'] . ').'));
+                redirect(admin_return_url('/admin/shop-products?edit=' . $pid, false));
+            }
+
+            if ($action === 'set_shop_product_cover') {
+                $pid = max(0, (int) ($_POST['product_id'] ?? 0));
+                $imgId = max(0, (int) ($_POST['image_id'] ?? 0));
+                $img = db_one('SELECT id, image_path FROM product_images WHERE id = ? AND product_id = ?', [$imgId, $pid]);
+                if ($img) {
+                    db_exec('UPDATE product_images SET is_cover = 0 WHERE product_id = ?', [$pid]);
+                    db_exec('UPDATE product_images SET is_cover = 1 WHERE id = ?', [$imgId]);
+                    db_exec('UPDATE products SET cover_image = ? WHERE id = ?', [$img['image_path'], $pid]);
+                    flash('success', admin_bi('কভার ছবি পরিবর্তিত হয়েছে।', 'Cover image updated.'));
+                }
+                redirect('/admin/shop-products?edit=' . $pid);
+            }
+
+            if ($action === 'delete_shop_product_image') {
+                $pid = max(0, (int) ($_POST['product_id'] ?? 0));
+                $imgId = max(0, (int) ($_POST['image_id'] ?? 0));
+                $img = db_one('SELECT * FROM product_images WHERE id = ? AND product_id = ?', [$imgId, $pid]);
+                if ($img) {
+                    db_exec('DELETE FROM product_images WHERE id = ?', [$imgId]);
+                    media_try_delete_unused_image((string) $img['image_path']);
+                    if ((int) $img['is_cover'] === 1) {
+                        $next = db_one('SELECT id, image_path FROM product_images WHERE product_id = ? ORDER BY sort_order ASC, id ASC LIMIT 1', [$pid]);
+                        if ($next) {
+                            db_exec('UPDATE product_images SET is_cover = 1 WHERE id = ?', [(int) $next['id']]);
+                            db_exec('UPDATE products SET cover_image = ? WHERE id = ?', [$next['image_path'], $pid]);
+                        } else {
+                            db_exec('UPDATE products SET cover_image = NULL WHERE id = ?', [$pid]);
+                        }
+                    }
+                    flash('success', admin_bi('ছবি সরানো হয়েছে।', 'Image deleted.'));
+                }
+                redirect('/admin/shop-products?edit=' . $pid);
+            }
+
+            if ($action === 'delete_shop_product') {
+                $id = max(0, (int) ($_POST['id'] ?? 0));
+                $imgs = db_all('SELECT image_path FROM product_images WHERE product_id = ?', [$id]);
+                $prod = db_one('SELECT slug, cover_image FROM products WHERE id = ?', [$id]);
+                db_exec('DELETE FROM products WHERE id = ?', [$id]);
+                foreach ($imgs as $im) {
+                    media_try_delete_unused_image((string) $im['image_path']);
+                }
+                if ($prod && !empty($prod['cover_image'])) {
+                    media_try_delete_unused_image((string) $prod['cover_image']);
+                }
+                log_admin_action($admin, 'shop_prod_delete', 'product', $id, 'Deleted product #' . $id);
+                invalidate_folder_and_sitemap_cache(false);
+                if (!empty($prod['slug'])) {
+                    growth_indexnow_queue_entity('product', (string) $prod['slug'], 'delete');
+                    growth_indexnow_flush(false);
+                }
+                flash('success', admin_bi('পণ্য মুছে ফেলা হয়েছে।', 'Product deleted.'));
+                redirect(admin_return_url('/admin/shop-products'));
+            }
+
+            if ($action === 'preview_shop_csv') {
+                if (empty($_FILES['csv_file']) || (int) ($_FILES['csv_file']['error'] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                    throw new RuntimeException('Please choose a valid CSV file.');
+                }
+                $_SESSION['shop_csv_preview'] = shop_parse_products_csv((string) $_FILES['csv_file']['tmp_name']);
+                flash('success', admin_bi('CSV যাচাই সম্পন্ন হয়েছে।', 'CSV parsed — review preview below before importing.'));
+                redirect('/admin/shop-products');
+            }
+
+            if ($action === 'import_shop_csv') {
+                $preview = $_SESSION['shop_csv_preview'] ?? null;
+                if (!is_array($preview) || empty($preview['rows'])) {
+                    throw new RuntimeException('No CSV preview found.');
+                }
+                $imported = 0;
+                foreach ($preview['rows'] as $row) {
+                    if (!empty($row['errors'])) {
+                        continue;
+                    }
+                    $catId = null;
+                    if (!empty($row['category_slug'])) {
+                        $c = db_one('SELECT id FROM shop_categories WHERE slug = ? LIMIT 1', [slugify((string) $row['category_slug'])]);
+                        if ($c) {
+                            $catId = (int) $c['id'];
+                        }
+                    }
+                    $slug = (string) $row['slug'];
+                    if (db_one('SELECT id FROM products WHERE slug = ? LIMIT 1', [$slug])) {
+                        $slug .= '-' . substr(bin2hex(random_bytes(2)), 0, 4);
+                    }
+                    $sku = $row['sku'];
+                    if ($sku !== null && db_one('SELECT id FROM products WHERE sku = ? LIMIT 1', [$sku])) {
+                        continue;
+                    }
+                    db_exec(
+                        'INSERT INTO products (category_id, slug, sku, title_bn, title_en, author_bn, author_en, publisher, isbn, price, discount_price, stock, weight_grams, description_bn, description_en, is_featured, is_active)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [
+                            $catId, $slug, $sku, $row['title_bn'], $row['title_en'],
+                            $row['author_bn'], $row['author_en'], $row['publisher'], $row['isbn'],
+                            $row['price'], $row['discount_price'], (int) $row['stock'], (int) $row['weight_grams'],
+                            $row['description_bn'], $row['description_en'], (int) $row['is_featured'], (int) $row['is_active'],
+                        ]
+                    );
+                    $pid = (int) db()->lastInsertId();
+                    if ((int) $row['stock'] > 0) {
+                        db_exec(
+                            'INSERT INTO product_stock_logs (product_id, admin_id, change_qty, stock_before, stock_after, reason) VALUES (?, ?, ?, 0, ?, "CSV Import")',
+                            [$pid, (int) $admin['id'], (int) $row['stock'], (int) $row['stock']]
+                        );
+                    }
+                    $imported++;
+                }
+                unset($_SESSION['shop_csv_preview']);
+                log_admin_action($admin, 'shop_csv_import', 'product', null, "Imported {$imported} products via CSV");
+                invalidate_folder_and_sitemap_cache(false);
+                flash('success', admin_bi("{$imported}টি পণ্য CSV থেকে ইমপোর্ট হয়েছে।", "Imported {$imported} product(s) from CSV."));
+                redirect('/admin/shop-products');
+            }
+
+            // --- Physical Shop Orders ---
+            if ($action === 'shop_order_update') {
+                $oid = max(0, (int) ($_POST['order_id'] ?? 0));
+                $targetStatus = (string) ($_POST['status'] ?? '');
+                $res = shop_transition_order_status($oid, $targetStatus, (int) $admin['id'], [
+                    'courier_name'   => trim((string) ($_POST['courier_name'] ?? '')),
+                    'tracking_code'  => trim((string) ($_POST['tracking_code'] ?? '')),
+                    'admin_note'     => trim((string) ($_POST['admin_note'] ?? '')),
+                    'internal_notes' => trim((string) ($_POST['internal_notes'] ?? '')),
+                ]);
+                if (!$res['ok']) {
+                    throw new RuntimeException((string) ($res['message'] ?? 'Update failed'));
+                }
+                log_admin_action($admin, 'shop_order_' . $targetStatus, 'shop_order', $oid, 'Shop order #' . ($res['order']['order_code'] ?? $oid));
+                flash('success', admin_bi('শপ অর্ডার আপডেট হয়েছে।', 'Shop order updated (' . $targetStatus . ').'));
+                redirect(admin_return_url('/admin/shop-orders'));
+            }
+
+            if ($action === 'shop_bulk_orders') {
+                $targetStatus = (string) ($_POST['bulk_status'] ?? '');
+                $note = trim((string) ($_POST['bulk_note'] ?? ''));
+                $rawIds = $_POST['ids'] ?? [];
+                $ids = is_array($rawIds) ? array_values(array_unique(array_filter(array_map('intval', $rawIds), fn(int $v): bool => $v > 0))) : [];
+                if (!$ids || !in_array($targetStatus, SHOP_ORDER_STATUSES, true)) {
+                    throw new RuntimeException(admin_bi('অর্ডার এবং সঠিক স্ট্যাটাস নির্বাচন করুন।', 'Select at least one order and a valid status.'));
+                }
+                $updatedCnt = 0;
+                foreach ($ids as $oid) {
+                    $meta = $note !== '' ? ['admin_note' => $note] : [];
+                    $r = shop_transition_order_status($oid, $targetStatus, (int) $admin['id'], $meta);
+                    if (!empty($r['ok']) && !empty($r['changed'])) {
+                        $updatedCnt++;
+                    }
+                }
+                log_admin_action($admin, 'shop_bulk_' . $targetStatus, 'shop_order', null, "Bulk updated {$updatedCnt} orders");
+                flash('success', admin_bi("{$updatedCnt}টি শপ অর্ডার হালনাগাদ হয়েছে।", "Bulk action complete: {$updatedCnt} order(s) moved to {$targetStatus}."));
+                redirect(admin_return_url('/admin/shop-orders'));
+            }
+
+            if ($action === 'shop_handle_return') {
+                $oid = max(0, (int) ($_POST['order_id'] ?? 0));
+                $decision = (string) ($_POST['decision'] ?? '');
+                $restock = isset($_POST['restock']);
+                $note = trim((string) ($_POST['return_note'] ?? ''));
+                $res = shop_handle_return($oid, $decision, (int) $admin['id'], $restock, $note);
+                if (!$res['ok']) {
+                    throw new RuntimeException((string) ($res['message'] ?? 'Failed to process return'));
+                }
+                log_admin_action($admin, 'shop_return_' . $decision, 'shop_order', $oid, 'Return ' . $decision);
+                flash('success', admin_bi('রিটার্ন অনুরোধ প্রক্রিয়াকরণ সম্পন্ন হয়েছে।', 'Return decision saved (' . $decision . ').'));
+                redirect(admin_return_url('/admin/shop-orders'));
+            }
+
+            // --- Delivery Settings ---
+            if ($action === 'save_delivery_settings') {
+                $dhakaFee = max(0.0, (float) ($_POST['shop_delivery_dhaka'] ?? 60));
+                $outFee   = max(0.0, (float) ($_POST['shop_delivery_outside'] ?? 120));
+                $freeAbove = max(0.0, (float) ($_POST['shop_free_delivery_above'] ?? 0));
+                $returnDays = max(1, min(60, (int) ($_POST['shop_return_days'] ?? 7)));
+                $estDhaka = trim((string) ($_POST['shop_est_days_dhaka'] ?? '1-2 days')) ?: '1-2 days';
+                $estOut   = trim((string) ($_POST['shop_est_days_outside'] ?? '3-5 days')) ?: '3-5 days';
+
+                $ovDists = is_array($_POST['override_district'] ?? null) ? $_POST['override_district'] : [];
+                $ovFees  = is_array($_POST['override_fee'] ?? null) ? $_POST['override_fee'] : [];
+                $validDistricts = shop_bd_districts();
+                $ovMap = [];
+                foreach ($ovDists as $idx => $dName) {
+                    $d = trim((string) $dName);
+                    $f = trim((string) ($ovFees[$idx] ?? ''));
+                    if ($d !== '' && isset($validDistricts[$d]) && $f !== '' && is_numeric($f) && (float) $f >= 0) {
+                        $ovMap[$d] = round((float) $f, 2);
+                    }
+                }
+
+                $pairs = [
+                    'shop_enabled'               => isset($_POST['shop_enabled']) ? '1' : '0',
+                    'shop_cod_enabled'           => isset($_POST['shop_cod_enabled']) ? '1' : '0',
+                    'shop_delivery_dhaka'        => (string) round($dhakaFee, 2),
+                    'shop_delivery_outside'      => (string) round($outFee, 2),
+                    'shop_free_delivery_above'   => (string) round($freeAbove, 2),
+                    'shop_est_days_dhaka'        => $estDhaka,
+                    'shop_est_days_outside'      => $estOut,
+                    'shop_return_days'           => (string) $returnDays,
+                    'shop_delivery_district_json' => json_encode($ovMap, JSON_UNESCAPED_UNICODE),
+                ];
+                foreach ($pairs as $sk => $sv) {
+                    db_exec(
+                        'INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+                        [$sk, $sv]
+                    );
+                }
+                invalidate_folder_and_sitemap_cache(true);
+                log_admin_action($admin, 'delivery_settings_update', 'settings', null, 'Updated delivery & COD settings');
+                flash('success', admin_bi('ডেলিভারি ও শপ সেটিংস সংরক্ষিত হয়েছে।', 'Delivery & COD settings saved.'));
+                redirect('/admin/delivery-settings');
+            }
+
+            // --- Guides & Authors SEO ---
+            if ($action === 'save_guide') {
+                $id = !empty($_POST['id']) ? (int) $_POST['id'] : null;
+                $titleBn = trim((string) ($_POST['title_bn'] ?? ''));
+                $titleEn = trim((string) ($_POST['title_en'] ?? ''));
+                $slugIn  = trim((string) ($_POST['slug'] ?? ''));
+                $catSlugIn = trim((string) ($_POST['category_slug'] ?? ''));
+                $catBn   = mb_substr(trim((string) ($_POST['category_bn'] ?? '')), 0, 140) ?: null;
+                $catEn   = mb_substr(trim((string) ($_POST['category_en'] ?? '')), 0, 140) ?: null;
+                $catSlug = $catSlugIn !== '' ? slugify($catSlugIn) : (($catEn ?: $catBn) ? slugify((string) ($catEn ?: $catBn)) : null);
+                $tags    = mb_substr(trim((string) ($_POST['tags'] ?? '')), 0, 320) ?: null;
+                $authorId = !empty($_POST['author_id']) ? (int) $_POST['author_id'] : null;
+                $authorName = mb_substr(trim((string) ($_POST['author_name'] ?? '')), 0, 150) ?: null;
+                if ($authorId && ($auRow = db_one('SELECT name_bn, name_en FROM authors WHERE id = ?', [$authorId]))) {
+                    $authorName = (string) ($auRow['name_en'] ?: $auRow['name_bn']);
+                }
+                $publishAt = admin_parse_datetime($_POST['publish_at'] ?? null);
+                $sumBn   = mb_substr(trim((string) ($_POST['summary_bn'] ?? '')), 0, 400) ?: null;
+                $sumEn   = mb_substr(trim((string) ($_POST['summary_en'] ?? '')), 0, 400) ?: null;
+                $bodyBn  = content_sanitize_rich_html((string) ($_POST['body_bn'] ?? ''));
+                $bodyEn  = content_sanitize_rich_html((string) ($_POST['body_en'] ?? ''));
+                $relItemIds = is_array($_POST['related_item_ids'] ?? null)
+                    ? implode(',', array_values(array_filter(array_map('intval', $_POST['related_item_ids']))))
+                    : null;
+                $relFolderIds = is_array($_POST['related_folder_ids'] ?? null)
+                    ? implode(',', array_values(array_filter(array_map('intval', $_POST['related_folder_ids']))))
+                    : null;
+                $seoTBn  = mb_substr(trim((string) ($_POST['seo_title_bn'] ?? '')), 0, 220) ?: null;
+                $seoTEn  = mb_substr(trim((string) ($_POST['seo_title_en'] ?? '')), 0, 220) ?: null;
+                $seoDBn  = mb_substr(trim((string) ($_POST['seo_description_bn'] ?? '')), 0, 320) ?: null;
+                $seoDEn  = mb_substr(trim((string) ($_POST['seo_description_en'] ?? '')), 0, 320) ?: null;
+                $isActive = isset($_POST['is_active']) ? 1 : 0;
+                if ($titleBn === '' || $titleEn === '') {
+                    throw new RuntimeException(admin_bi('গাইডের বাংলা ও ইংরেজি শিরোনাম দিন।', 'Guide BN & EN titles are required.'));
+                }
+
+                // Block publishing exact duplicate content
+                $qc = content_quality_analyze([
+                    'title'         => $seoTBn ?: $titleBn,
+                    'description'   => $seoDBn ?: ($sumBn ?? ''),
+                    'body_bn'       => $bodyBn,
+                    'body_en'       => $bodyEn,
+                    'related_count' => count(content_parse_id_list($relItemIds)) + count(content_parse_id_list($relFolderIds)),
+                ], $id);
+                if ($isActive === 1 && !empty($qc['is_duplicate'])) {
+                    throw new RuntimeException(admin_bi(
+                        'একই ধরনের অবিকল ডুপ্লিকেট কনটেন্ট প্রকাশ করা যাবে না। অনুগ্রহ করে মৌলিক ও ইউনিক গাইড লিখুন।',
+                        'Publishing blocked: exact duplicate guide content already exists. Please write unique material.'
+                    ));
+                }
+
+                $readMins = content_reading_time($bodyBn !== '' ? $bodyBn : $bodyEn);
+                $slug = slugify($slugIn !== '' ? $slugIn : $titleEn);
+                $dup = $id
+                    ? db_one('SELECT id FROM guides WHERE slug = ? AND id != ? LIMIT 1', [$slug, $id])
+                    : db_one('SELECT id FROM guides WHERE slug = ? LIMIT 1', [$slug]);
+                if ($dup) {
+                    $slug .= '-' . substr(bin2hex(random_bytes(2)), 0, 4);
+                }
+                $upCover = safe_admin_image_upload('cover', 'covers', 900);
+                if ($id === null) {
+                    db_exec(
+                        'INSERT INTO guides (slug, category_slug, category_bn, category_en, tags, title_bn, title_en, summary_bn, summary_en, body_bn, body_en, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, cover, author_name, author_id, reading_minutes, related_item_ids, related_folder_ids, is_active, publish_at, content_hash)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$slug, $catSlug, $catBn, $catEn, $tags, $titleBn, $titleEn, $sumBn, $sumEn, $bodyBn ?: null, $bodyEn ?: null, $seoTBn, $seoTEn, $seoDBn, $seoDEn, $upCover, $authorName, $authorId, $readMins, $relItemIds ?: null, $relFolderIds ?: null, $isActive, $publishAt, $qc['content_hash']]
+                    );
+                    $nid = (int) db()->lastInsertId();
+                    prune_self_slug_history('guide', $slug);
+                    log_admin_action($admin, 'guide_create', 'guide', $nid, $titleEn);
+                    flash('success', admin_bi('স্টাডি গাইড প্রকাশিত হয়েছে।', 'Study guide published.'));
+                } else {
+                    $old = db_one('SELECT slug, cover FROM guides WHERE id = ?', [$id]);
+                    if (!$old) throw new RuntimeException('Guide not found.');
+                    $cover = $upCover ?: ($old['cover'] ?? null);
+                    db_exec(
+                        'UPDATE guides SET slug=?, category_slug=?, category_bn=?, category_en=?, tags=?, title_bn=?, title_en=?, summary_bn=?, summary_en=?, body_bn=?, body_en=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, cover=?, author_name=?, author_id=?, reading_minutes=?, related_item_ids=?, related_folder_ids=?, is_active=?, publish_at=?, content_hash=? WHERE id=?',
+                        [$slug, $catSlug, $catBn, $catEn, $tags, $titleBn, $titleEn, $sumBn, $sumEn, $bodyBn ?: null, $bodyEn ?: null, $seoTBn, $seoTEn, $seoDBn, $seoDEn, $cover, $authorName, $authorId, $readMins, $relItemIds ?: null, $relFolderIds ?: null, $isActive, $publishAt, $qc['content_hash'], $id]
+                    );
+                    if (!empty($old['slug']) && $old['slug'] !== $slug) {
+                        record_slug_history('guide', $id, (string) $old['slug']);
+                    }
+                    prune_self_slug_history('guide', $slug);
+                    log_admin_action($admin, 'guide_update', 'guide', $id, $titleEn);
+                    flash('success', admin_bi('স্টাডি গাইড আপডেট হয়েছে।', 'Study guide updated.'));
+                }
+                aeo_save_entity_extra('guides', (int) ($id ?? $nid ?? 0), $_POST);
+                invalidate_folder_and_sitemap_cache(false);
+                growth_indexnow_queue_entity('guide', $slug, $id === null ? 'publish' : 'update');
+                growth_indexnow_flush(false);
+                redirect('/admin/guides');
+            }
+
+            if ($action === 'delete_guide') {
+                $id = max(0, (int) ($_POST['id'] ?? 0));
+                $old = $id > 0 ? db_one('SELECT slug, cover FROM guides WHERE id = ?', [$id]) : null;
+                db_exec('DELETE FROM guides WHERE id = ?', [$id]);
+                db_exec("DELETE FROM slug_history WHERE entity_type = 'guide' AND entity_id = ?", [$id]);
+                if ($old && !empty($old['cover'])) {
+                    media_try_delete_unused_image((string) $old['cover']);
+                }
+                invalidate_folder_and_sitemap_cache(false);
+                if (!empty($old['slug'])) {
+                    growth_indexnow_queue_entity('guide', (string) $old['slug'], 'delete');
+                    growth_indexnow_flush(false);
+                }
+                flash('success', admin_bi('স্টাডি গাইড মুছে ফেলা হয়েছে।', 'Guide deleted.'));
+                redirect('/admin/guides');
+            }
+
+            if ($action === 'save_author_seo') {
+                $id = max(0, (int) ($_POST['id'] ?? 0));
+                $old = $id > 0 ? db_one('SELECT * FROM authors WHERE id = ?', [$id]) : null;
+                if (!$old) {
+                    throw new RuntimeException('Author not found.');
+                }
+                $nameBn = trim((string) ($_POST['name_bn'] ?? ''));
+                $nameEn = trim((string) ($_POST['name_en'] ?? ''));
+                $slug   = slugify((string) ($_POST['slug'] ?? '') ?: $nameEn);
+                if ($nameBn === '' || $nameEn === '') {
+                    throw new RuntimeException('Author BN & EN names are required.');
+                }
+                $dup = db_one('SELECT id FROM authors WHERE slug = ? AND id != ? LIMIT 1', [$slug, $id]);
+                if ($dup) {
+                    $slug .= '-' . substr(bin2hex(random_bytes(2)), 0, 4);
+                }
+                $photo = safe_admin_image_upload('photo', 'covers', 500) ?: ($old['photo'] ?? null);
+                db_exec(
+                    'UPDATE authors SET slug=?, name_bn=?, name_en=?, expertise_bn=?, expertise_en=?, bio_bn=?, bio_en=?, photo=?, social_facebook=?, social_linkedin=?, social_website=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, is_active=? WHERE id=?',
+                    [
+                        $slug, $nameBn, $nameEn,
+                        mb_substr(trim((string) ($_POST['expertise_bn'] ?? '')), 0, 220) ?: null,
+                        mb_substr(trim((string) ($_POST['expertise_en'] ?? '')), 0, 220) ?: null,
+                        trim((string) ($_POST['bio_bn'] ?? '')) ?: null,
+                        trim((string) ($_POST['bio_en'] ?? '')) ?: null,
+                        $photo,
+                        sanitize_social_url((string) ($_POST['social_facebook'] ?? '')) ?: null,
+                        sanitize_social_url((string) ($_POST['social_linkedin'] ?? '')) ?: null,
+                        sanitize_social_url((string) ($_POST['social_website'] ?? '')) ?: null,
+                        mb_substr(trim((string) ($_POST['seo_title_bn'] ?? '')), 0, 220) ?: null,
+                        mb_substr(trim((string) ($_POST['seo_title_en'] ?? '')), 0, 220) ?: null,
+                        mb_substr(trim((string) ($_POST['seo_description_bn'] ?? '')), 0, 320) ?: null,
+                        mb_substr(trim((string) ($_POST['seo_description_en'] ?? '')), 0, 320) ?: null,
+                        isset($_POST['is_active']) ? 1 : 0,
+                        $id,
+                    ]
+                );
+                if (!empty($old['slug']) && $old['slug'] !== $slug) {
+                    record_slug_history('author', $id, (string) $old['slug']);
+                }
+                prune_self_slug_history('author', $slug);
+                invalidate_folder_and_sitemap_cache(false);
+                flash('success', admin_bi('লেখক প্রোফাইল ও SEO সংরক্ষিত হয়েছে।', 'Author SEO & profile updated.'));
+                redirect('/admin/guides');
+            }
+
+            // --- Topic Hub Pages & Global FAQs ---
+            if ($action === 'save_hub') {
+                $id = !empty($_POST['id']) ? (int) $_POST['id'] : null;
+                $titleBn = trim((string) ($_POST['title_bn'] ?? ''));
+                $titleEn = trim((string) ($_POST['title_en'] ?? ''));
+                $slugIn  = trim((string) ($_POST['slug'] ?? ''));
+                if ($titleBn === '' || $titleEn === '') {
+                    throw new RuntimeException('Hub BN & EN titles are required.');
+                }
+                $slug = slugify($slugIn !== '' ? $slugIn : $titleEn);
+                $dup = $id
+                    ? db_one('SELECT id FROM hubs WHERE slug = ? AND id != ? LIMIT 1', [$slug, $id])
+                    : db_one('SELECT id FROM hubs WHERE slug = ? LIMIT 1', [$slug]);
+                if ($dup) {
+                    $slug .= '-' . substr(bin2hex(random_bytes(2)), 0, 4);
+                }
+                $introBn = content_sanitize_rich_html((string) ($_POST['intro_bn'] ?? '')) ?: null;
+                $introEn = content_sanitize_rich_html((string) ($_POST['intro_en'] ?? '')) ?: null;
+                $guideId = !empty($_POST['guide_id']) ? (int) $_POST['guide_id'] : null;
+                $featItems = is_array($_POST['featured_item_ids'] ?? null)
+                    ? implode(',', array_values(array_filter(array_map('intval', $_POST['featured_item_ids']))))
+                    : null;
+                $featFolders = is_array($_POST['featured_folder_ids'] ?? null)
+                    ? implode(',', array_values(array_filter(array_map('intval', $_POST['featured_folder_ids']))))
+                    : null;
+                $faqsJson = content_serialize_faqs_post($_POST);
+                $seoTBn = mb_substr(trim((string) ($_POST['seo_title_bn'] ?? '')), 0, 220) ?: null;
+                $seoTEn = mb_substr(trim((string) ($_POST['seo_title_en'] ?? '')), 0, 220) ?: null;
+                $seoDBn = mb_substr(trim((string) ($_POST['seo_description_bn'] ?? '')), 0, 320) ?: null;
+                $seoDEn = mb_substr(trim((string) ($_POST['seo_description_en'] ?? '')), 0, 320) ?: null;
+                $sortOrder = (int) ($_POST['sort_order'] ?? 0);
+                $isActive = isset($_POST['is_active']) ? 1 : 0;
+
+                if ($id === null) {
+                    db_exec(
+                        'INSERT INTO hubs (slug, title_bn, title_en, intro_bn, intro_en, guide_id, featured_item_ids, featured_folder_ids, faqs_json, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, is_active, sort_order)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$slug, $titleBn, $titleEn, $introBn, $introEn, $guideId, $featItems ?: null, $featFolders ?: null, $faqsJson, $seoTBn, $seoTEn, $seoDBn, $seoDEn, $isActive, $sortOrder]
+                    );
+                    $nid = (int) db()->lastInsertId();
+                    prune_self_slug_history('hub', $slug);
+                    log_admin_action($admin, 'hub_create', 'hub', $nid, $titleEn);
+                    flash('success', admin_bi('হাব পেজ তৈরি হয়েছে।', 'Topic Hub created.'));
+                } else {
+                    $old = db_one('SELECT slug FROM hubs WHERE id = ?', [$id]);
+                    db_exec(
+                        'UPDATE hubs SET slug=?, title_bn=?, title_en=?, intro_bn=?, intro_en=?, guide_id=?, featured_item_ids=?, featured_folder_ids=?, faqs_json=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, is_active=?, sort_order=? WHERE id=?',
+                        [$slug, $titleBn, $titleEn, $introBn, $introEn, $guideId, $featItems ?: null, $featFolders ?: null, $faqsJson, $seoTBn, $seoTEn, $seoDBn, $seoDEn, $isActive, $sortOrder, $id]
+                    );
+                    if ($old && !empty($old['slug']) && $old['slug'] !== $slug) {
+                        record_slug_history('hub', $id, (string) $old['slug']);
+                    }
+                    prune_self_slug_history('hub', $slug);
+                    log_admin_action($admin, 'hub_update', 'hub', $id, $titleEn);
+                    flash('success', admin_bi('হাব পেজ আপডেট হয়েছে।', 'Topic Hub updated.'));
+                }
+                aeo_save_entity_extra('hubs', (int) ($id ?? $nid ?? 0), $_POST);
+                invalidate_folder_and_sitemap_cache(false);
+                redirect('/admin/hubs');
+            }
+
+            if ($action === 'delete_hub') {
+                $hid = max(0, (int) ($_POST['id'] ?? 0));
+                db_exec('DELETE FROM hubs WHERE id = ?', [$hid]);
+                db_exec("DELETE FROM slug_history WHERE entity_type = 'hub' AND entity_id = ?", [$hid]);
+                invalidate_folder_and_sitemap_cache(false);
+                flash('success', 'Topic Hub deleted.');
+                redirect('/admin/hubs');
+            }
+
+            if ($action === 'save_editorial_faq') {
+                $qBn = mb_substr(trim((string) ($_POST['question_bn'] ?? '')), 0, 300);
+                $qEn = mb_substr(trim((string) ($_POST['question_en'] ?? '')), 0, 300);
+                $aBn = trim((string) ($_POST['answer_bn'] ?? ''));
+                $aEn = trim((string) ($_POST['answer_en'] ?? ''));
+                if ($qBn === '' || $qEn === '' || $aBn === '' || $aEn === '') {
+                    throw new RuntimeException('Both BN & EN Question and Answer are required.');
+                }
+                db_exec(
+                    "INSERT INTO editorial_faqs (scope_type, scope_id, question_bn, answer_bn, question_en, answer_en, sort_order, is_active) VALUES ('global', NULL, ?, ?, ?, ?, 10, 1)",
+                    [$qBn, $aBn, $qEn, $aEn]
+                );
+                flash('success', 'FAQ added.');
+                redirect('/admin/hubs');
+            }
+
+            if ($action === 'delete_editorial_faq') {
+                $fid = max(0, (int) ($_POST['id'] ?? 0));
+                db_exec('DELETE FROM editorial_faqs WHERE id = ?', [$fid]);
+                flash('success', 'FAQ deleted.');
+                redirect('/admin/hubs');
+            }
+
+            // --- Technical SEO Settings, Templates, Validator, Redirects & 404 Log ---
+            if ($action === 'save_seo_settings') {
+                $pairs = [
+                    'seo_google_verify'   => mb_substr(trim((string) ($_POST['seo_google_verify'] ?? '')), 0, 120),
+                    'seo_bing_verify'     => mb_substr(trim((string) ($_POST['seo_bing_verify'] ?? '')), 0, 120),
+                    'seo_default_region'  => strtoupper(preg_replace('/[^A-Za-z]/', '', (string) ($_POST['seo_default_region'] ?? 'BD')) ?: 'BD'),
+                    'social_facebook'     => sanitize_social_url((string) ($_POST['social_facebook'] ?? '')),
+                    'social_youtube'      => sanitize_social_url((string) ($_POST['social_youtube'] ?? '')),
+                    'social_instagram'    => sanitize_social_url((string) ($_POST['social_instagram'] ?? '')),
+                    'social_telegram'     => sanitize_social_url((string) ($_POST['social_telegram'] ?? '')),
+                    'site_founding_year'  => mb_substr(trim((string) ($_POST['site_founding_year'] ?? '2024')), 0, 10) ?: '2024',
+                    'legal_last_reviewed' => mb_substr(trim((string) ($_POST['legal_last_reviewed'] ?? date('Y-m-d'))), 0, 20) ?: date('Y-m-d'),
+                    'seo_sameas_extra'    => mb_substr(trim((string) ($_POST['seo_sameas_extra'] ?? '')), 0, 1500),
+                ];
+                $ogUpload = safe_admin_image_upload('seo_default_og_image_file', 'brand', 1200);
+                if ($ogUpload !== null) {
+                    $pairs['seo_default_og_image'] = $ogUpload;
+                }
+                $tplPosted = $_POST['tpl'] ?? [];
+                if (is_array($tplPosted)) {
+                    foreach (array_keys(seo_default_templates()) as $pType) {
+                        $row = is_array($tplPosted[$pType] ?? null) ? $tplPosted[$pType] : [];
+                        foreach (['title_bn', 'title_en', 'desc_bn', 'desc_en'] as $field) {
+                            if (isset($row[$field])) {
+                                $pairs["seo_tpl_{$pType}_{$field}"] = mb_substr(trim((string) $row[$field]), 0, 320);
+                            }
+                        }
+                    }
+                }
+                foreach ($pairs as $sk => $sv) {
+                    db_exec('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [$sk, $sv]);
+                }
+                invalidate_folder_and_sitemap_cache(false);
+                log_admin_action($admin, 'seo_settings_save', 'settings', null, 'Updated technical SEO & meta templates');
+                flash('success', admin_bi('SEO সেটিংস ও মেটা টেমপ্লেট সংরক্ষিত হয়েছে।', 'Technical SEO settings & templates saved.'));
+                redirect('/admin/seo');
+            }
+
+            if ($action === 'save_aeo_policy') {
+                $posted = is_array($_POST['crawler_policy'] ?? null) ? $_POST['crawler_policy'] : [];
+                $cleanPolicy = [];
+                foreach (aeo_crawler_catalog() as $cw) {
+                    $bot = $cw['name'];
+                    $val = (string) ($posted[$bot] ?? $cw['default']);
+                    $cleanPolicy[$bot] = $val === 'block' ? 'block' : 'allow';
+                }
+                $aeoPairs = [
+                    'aeo_crawler_policy_json' => json_encode($cleanPolicy, JSON_UNESCAPED_SLASHES),
+                    'aeo_send_noai_paid'      => isset($_POST['aeo_send_noai_paid']) ? '1' : '0',
+                    'aeo_global_noimageai'    => isset($_POST['aeo_global_noimageai']) ? '1' : '0',
+                ];
+                foreach ($aeoPairs as $sk => $sv) {
+                    db_exec('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [$sk, (string) $sv]);
+                }
+                invalidate_folder_and_sitemap_cache(false);
+                log_admin_action($admin, 'aeo_policy_save', 'settings', null, 'Updated AI crawler & noai policy');
+                flash('success', admin_bi('AI ক্রলার নীতিমালা ও robots.txt আপডেট হয়েছে।', 'AI crawler policy & robots.txt updated.'));
+                redirect('/admin/aeo');
+            }
+
+            if ($action === 'purge_seo_cache') {
+                invalidate_folder_and_sitemap_cache(false);
+                flash('success', admin_bi('সাইটম্যাপ ও সোশ্যাল কার্ড ক্যাশ রিফ্রেশ হয়েছে।', 'Sitemaps and OG social card caches cleared for rebuild.'));
+                redirect('/admin/seo');
+            }
+
+            if ($action === 'test_structured_data') {
+                $inspectPath = safe_internal_path((string) ($_POST['inspect_path'] ?? '/'), '/');
+                $_SESSION['seo_sd_test_result'] = seo_structured_data_validate($inspectPath);
+                redirect('/admin/seo#sd-tester');
+            }
+
+            if ($action === 'save_seo_redirect') {
+                $fromRaw = trim((string) ($_POST['from_path'] ?? ''));
+                if ($fromRaw === '') {
+                    throw new RuntimeException('Source path is required.');
+                }
+                $fromClean = '/' . trim((string) parse_url($fromRaw, PHP_URL_PATH), '/');
+                if ($fromClean === '//') $fromClean = '/';
+                $fromClean = mb_strtolower($fromClean, 'UTF-8');
+                $code = (int) ($_POST['status_code'] ?? 301);
+                if (!in_array($code, [301, 302, 410], true)) {
+                    $code = 301;
+                }
+                $toRaw = trim((string) ($_POST['to_path'] ?? ''));
+                if ($code !== 410 && $toRaw === '') {
+                    throw new RuntimeException('Destination path or URL is required for 301/302 redirects.');
+                }
+                $toVal = $code === 410 ? null : (preg_match('#^https?://#i', $toRaw) ? $toRaw : safe_internal_path($toRaw, '/'));
+                $note  = mb_substr(trim((string) ($_POST['note'] ?? '')), 0, 250) ?: null;
+                db_exec(
+                    'INSERT INTO seo_redirects (from_path, to_path, status_code, note) VALUES (?, ?, ?, ?)
+                     ON DUPLICATE KEY UPDATE to_path = VALUES(to_path), status_code = VALUES(status_code), note = VALUES(note)',
+                    [$fromClean, $toVal, $code, $note]
+                );
+                db_exec('DELETE FROM seo_404_logs WHERE path = ? OR path LIKE ?', [$fromClean, '%' . escape_like($fromClean)]);
+                log_admin_action($admin, 'seo_redirect_save', 'seo_redirect', null, "{$fromClean} -> {$code} {$toVal}");
+                flash('success', admin_bi('রিডাইরেক্ট নিয়ম সংরক্ষিত হয়েছে।', 'Redirect rule saved.'));
+                redirect('/admin/seo#redirect-manager');
+            }
+
+            if ($action === 'delete_seo_redirect') {
+                $rid = max(0, (int) ($_POST['id'] ?? 0));
+                db_exec('DELETE FROM seo_redirects WHERE id = ?', [$rid]);
+                flash('success', admin_bi('রিডাইরেক্ট মুছে ফেলা হয়েছে।', 'Redirect rule deleted.'));
+                redirect('/admin/seo#redirect-manager');
+            }
+
+            if ($action === 'clear_seo_404') {
+                db_exec('TRUNCATE TABLE seo_404_logs');
+                flash('success', admin_bi('404 লগ পরিষ্কার করা হয়েছে।', '404 log cleared.'));
+                redirect('/admin/seo');
+            }
+
+            // --- Indexing, Measurement & Growth Tools (/admin/growth) ---
+            if ($action === 'save_growth_analytics') {
+                $ga4 = strtoupper(trim((string) ($_POST['ga4_measurement_id'] ?? '')));
+                if ($ga4 !== '' && !preg_match('/^G-[A-Z0-9]{4,20}$/', $ga4)) {
+                    throw new RuntimeException(admin_bi('সঠিক GA4 Measurement ID দিন (যেমন: G-XXXXXXXXXX)।', 'Enter a valid GA4 Measurement ID (e.g. G-XXXXXXXXXX).'));
+                }
+                $clarity = trim((string) ($_POST['clarity_project_id'] ?? ''));
+                if ($clarity !== '' && !preg_match('/^[a-zA-Z0-9]{6,24}$/', $clarity)) {
+                    throw new RuntimeException(admin_bi('সঠিক Microsoft Clarity Project ID দিন।', 'Enter a valid alphanumeric Microsoft Clarity Project ID.'));
+                }
+                $gPairs = [
+                    'ga4_measurement_id'    => $ga4,
+                    'clarity_project_id'    => $clarity,
+                    'analytics_dnt_honor'   => isset($_POST['analytics_dnt_honor']) ? '1' : '0',
+                    'cookie_banner_enabled' => isset($_POST['cookie_banner_enabled']) ? '1' : '0',
+                    'indexnow_enabled'      => isset($_POST['indexnow_enabled']) ? '1' : '0',
+                ];
+                foreach ($gPairs as $gk => $gv) {
+                    db_exec('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [$gk, $gv]);
+                }
+                perf_clear_page_cache();
+                log_admin_action($admin, 'growth_analytics_save', 'settings', null, 'Updated analytics & IndexNow settings');
+                flash('success', admin_bi('অ্যানালিটিক্স, কুকি কনসেন্ট ও IndexNow সেটিংস সংরক্ষিত হয়েছে।', 'Analytics, cookie consent & IndexNow settings saved.'));
+                redirect('/admin/growth#analytics-settings');
+            }
+
+            if ($action === 'save_search_console') {
+                $gMeta = mb_substr(trim((string) ($_POST['seo_google_verify'] ?? '')), 0, 120);
+                $bMeta = mb_substr(trim((string) ($_POST['seo_bing_verify'] ?? '')), 0, 120);
+                $fName = trim((string) ($_POST['gsc_verify_file_name'] ?? ''));
+                $fBody = trim((string) ($_POST['gsc_verify_file_content'] ?? ''));
+                if ($fName !== '' && !preg_match('/^[a-zA-Z0-9._-]+\.html$/', $fName)) {
+                    throw new RuntimeException(admin_bi('ভেরিফিকেশন ফাইলের নাম .html দিয়ে শেষ হতে হবে (যেমন google123.html)।', 'Verification filename must match [a-zA-Z0-9._-]+.html'));
+                }
+                if ($fName !== '' && $fBody === '') {
+                    $fBody = 'google-site-verification: ' . $fName;
+                }
+                foreach ([
+                    'seo_google_verify'       => $gMeta,
+                    'seo_bing_verify'         => $bMeta,
+                    'gsc_verify_file_name'    => $fName,
+                    'gsc_verify_file_content' => mb_substr($fBody, 0, 300),
+                ] as $sk => $sv) {
+                    db_exec('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [$sk, $sv]);
+                }
+                perf_clear_page_cache();
+                log_admin_action($admin, 'gsc_verify_save', 'settings', null, $fName ?: $gMeta);
+                flash('success', admin_bi('Search Console ভেরিফিকেশন সেটিংস সংরক্ষিত হয়েছে।', 'Search Console verification helpers updated.'));
+                redirect('/admin/growth#search-console');
+            }
+
+            if ($action === 'indexnow_flush_now') {
+                $customUrl = trim((string) ($_POST['custom_url'] ?? ''));
+                if ($customUrl !== '') {
+                    $u = preg_match('#^https?://#i', $customUrl) ? $customUrl : (rtrim(BASE_URL, '/') . safe_internal_path($customUrl, '/'));
+                    growth_indexnow_queue_urls([$u], 'manual', 'update');
+                }
+                if (growth_indexnow_queue_count() === 0) {
+                    growth_indexnow_queue_urls([absolute_url_for_lang('/', 'bn'), absolute_url_for_lang('/', 'en')], 'home', 'update');
+                }
+                $res = growth_indexnow_flush(true);
+                log_admin_action($admin, 'indexnow_flush', 'indexnow', null, ($res['status'] ?? '') . ' (' . ($res['count'] ?? 0) . ' URLs)');
+                flash(!empty($res['ok']) ? 'success' : 'warning', admin_bi(
+                    'IndexNow পিং অবস্থা: ' . ($res['status'] ?? 'unknown') . ' — ' . ($res['message'] ?? ''),
+                    'IndexNow ping status: ' . ($res['status'] ?? 'unknown') . ' — ' . ($res['message'] ?? '')
+                ));
+                redirect('/admin/growth#indexnow');
+            }
+
+            if ($action === 'indexnow_submit_sitemap') {
+                $res = growth_indexnow_submit_sitemap();
+                log_admin_action($admin, 'indexnow_sitemap', 'indexnow', null, ($res['status'] ?? '') . ' HTTP ' . ($res['http_status'] ?? 0));
+                flash(!empty($res['ok']) ? 'success' : 'warning', admin_bi(
+                    'সাইটম্যাপ পিং সম্পন্ন (' . ($res['status'] ?? '') . '): ' . ($res['message'] ?? ''),
+                    'Sitemap URL submission logged (' . ($res['status'] ?? '') . '): ' . ($res['message'] ?? '')
+                ));
+                redirect('/admin/growth#indexnow');
+            }
+
+            if ($action === 'indexnow_regen_key') {
+                $newKey = growth_indexnow_key(true);
+                log_admin_action($admin, 'indexnow_regen_key', 'settings', null, substr($newKey, 0, 8) . '...');
+                flash('success', admin_bi('নতুন IndexNow কী তৈরি ও হোস্ট করা হয়েছে।', 'Generated new IndexNow host verification key.'));
+                redirect('/admin/growth#indexnow');
+            }
+
+            if ($action === 'run_link_check_now') {
+                $chk = growth_link_checker_tick(12);
+                growth_check_alerts_on_telemetry();
+                log_admin_action($admin, 'seo_link_check', 'seo', null, 'Checked ' . $chk['checked'] . ', broken ' . $chk['broken']);
+                flash('success', admin_bi(
+                    "{$chk['checked']}টি লিংক পরীক্ষা সম্পন্ন (ভাঙা: {$chk['broken']}, চেইন: {$chk['chains']})।",
+                    "Checked {$chk['checked']} internal links (broken: {$chk['broken']}, chains: {$chk['chains']})."
+                ));
+                redirect('/admin/growth#seo-health');
+            }
+
+            if ($action === 'resolve_seo_alert') {
+                $aid = max(0, (int) ($_POST['alert_id'] ?? 0));
+                if ($aid > 0) {
+                    db_exec('UPDATE seo_alerts SET is_resolved = 1, resolved_at = NOW() WHERE id = ?', [$aid]);
+                } else {
+                    db_exec('UPDATE seo_alerts SET is_resolved = 1, resolved_at = NOW() WHERE is_resolved = 0');
+                }
+                flash('success', admin_bi('SEO অ্যালার্ট সমাধান হিসেবে চিহ্নিত হয়েছে।', 'Alert marked resolved.'));
+                redirect(admin_return_url('/admin/growth#alerts', false));
+            }
+
             // --- Settings ---
             if ($action === 'save_settings') {
                 $fields = [
                     'site_name', 'contact_phone', 'contact_email', 'contact_address',
                     'bkash_number', 'nagad_number', 'rocket_number',
                     'payment_instructions_bn', 'payment_instructions_en',
+                    'footer_text_bn', 'footer_text_en',
                     'smtp_host', 'smtp_user', 'smtp_from_name', 'smtp_from_email',
                     'legal_terms_bn', 'legal_terms_en', 'legal_privacy_bn', 'legal_privacy_en',
                     'legal_refund_bn', 'legal_refund_en', 'legal_copyright_bn', 'legal_copyright_en',
+                    'legal_editorial_bn', 'legal_editorial_en', 'legal_review_policy_bn', 'legal_review_policy_en', 'legal_corrections_bn', 'legal_corrections_en',
                 ];
                 foreach ($fields as $k) {
                     $val = trim((string) ($_POST[$k] ?? ''));
@@ -1655,6 +2920,24 @@ function handle_admin_routes(string $route): never
                         'INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
                         [$k, $val]
                     );
+                }
+                $themePrimary = sanitize_hex_color((string) ($_POST['theme_primary_color'] ?? '#2B2F77'), '#2B2F77');
+                $themeAccent  = sanitize_hex_color((string) ($_POST['theme_accent_color'] ?? '#F4A62A'), '#F4A62A');
+                $rawFontPair  = (string) ($_POST['theme_font_pair'] ?? 'hind_noto');
+                $fontPair     = in_array($rawFontPair, ['hind_noto', 'bengali_modern', 'editorial_serif', 'system_clean'], true) ? $rawFontPair : 'hind_noto';
+                $demoFlag     = isset($_POST['demo_mode']) ? '1' : '0';
+                foreach ([
+                    'theme_primary_color' => $themePrimary,
+                    'theme_accent_color'  => $themeAccent,
+                    'theme_font_pair'     => $fontPair,
+                    'demo_mode'           => $demoFlag,
+                    'social_facebook'     => sanitize_social_url((string) ($_POST['social_facebook'] ?? '')),
+                    'social_youtube'      => sanitize_social_url((string) ($_POST['social_youtube'] ?? '')),
+                    'social_telegram'     => sanitize_social_url((string) ($_POST['social_telegram'] ?? '')),
+                    'social_whatsapp'     => sanitize_social_url((string) ($_POST['social_whatsapp'] ?? '')),
+                    'social_instagram'    => sanitize_social_url((string) ($_POST['social_instagram'] ?? '')),
+                ] as $wk => $wv) {
+                    db_exec('INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)', [$wk, $wv]);
                 }
                 $smtpPort = (string) max(1, (int) ($_POST['smtp_port'] ?? 587));
                 $rawSmtpEnc = (string) ($_POST['smtp_encryption'] ?? 'tls');
@@ -1690,6 +2973,7 @@ function handle_admin_routes(string $route): never
                 $smsApiUrl  = trim((string) ($_POST['sms_gateway_api_url'] ?? ''));
                 $smsSender  = trim((string) ($_POST['sms_gateway_sender_id'] ?? 'Bookexa'));
                 $smsApiKey  = trim((string) ($_POST['sms_gateway_api_key'] ?? ''));
+                $smsBudget  = (string) max(0, min(1000000, (int) ($_POST['sms_daily_budget'] ?? 200)));
 
                 $gwEnabled = isset($_POST['payment_gateway_enabled']) ? '1' : '0';
                 $rawGwDriver = (string) ($_POST['payment_gateway_driver'] ?? 'manual');
@@ -1717,6 +3001,7 @@ function handle_admin_routes(string $route): never
                     'sms_gateway_sandbox'       => $smsSandbox,
                     'sms_gateway_api_url'       => $smsApiUrl,
                     'sms_gateway_sender_id'     => $smsSender,
+                    'sms_daily_budget'          => $smsBudget,
                     'payment_gateway_enabled'   => $gwEnabled,
                     'payment_gateway_driver'    => $gwDriver,
                     'payment_gateway_sandbox'   => $gwSandbox,
@@ -1809,9 +3094,10 @@ function handle_admin_routes(string $route): never
                     throw new RuntimeException(admin_bi('৬ অঙ্কের অথেনটিকেটর কোড সঠিক নয়।', 'Invalid 6-digit verification code.'));
                 }
                 $bc = totp_generate_backup_codes(8);
+                $encSecret = totp_encrypt_secret($secret);
                 db_exec(
-                    'UPDATE admins SET totp_secret = ?, totp_enabled = 1, backup_codes_json = ? WHERE id = ?',
-                    [$secret, json_encode($bc['hashes']), (int) $admin['id']]
+                    'UPDATE admins SET totp_secret = ?, totp_enabled = 1, backup_codes_json = ?, totp_last_step = NULL WHERE id = ?',
+                    [$encSecret, json_encode($bc['hashes']), (int) $admin['id']]
                 );
                 unset($_SESSION['admin_totp_setup_secret']);
                 $_SESSION['admin_fresh_backup_codes'] = $bc['plain'];
@@ -1837,7 +3123,7 @@ function handle_admin_routes(string $route): never
                 if (!$selfRow || !password_verify($currPw, (string) $selfRow['password_hash'])) {
                     throw new RuntimeException(admin_bi('পাসওয়ার্ড সঠিক নয়।', 'Current password is incorrect.'));
                 }
-                db_exec('UPDATE admins SET totp_secret = NULL, totp_enabled = 0, backup_codes_json = NULL WHERE id = ?', [(int) $admin['id']]);
+                db_exec('UPDATE admins SET totp_secret = NULL, totp_enabled = 0, backup_codes_json = NULL, totp_last_step = NULL WHERE id = ?', [(int) $admin['id']]);
                 log_admin_action($admin, 'admin_2fa_disabled', 'admin', (int) $admin['id'], 'Disabled TOTP 2FA');
                 log_security_event('admin_2fa_disabled', (string) $admin['email'], 'Disabled TOTP 2FA');
                 flash('success', admin_bi('2FA নিষ্ক্রিয় করা হয়েছে।', 'TOTP 2FA has been disabled.'));
@@ -1861,6 +3147,47 @@ function handle_admin_routes(string $route): never
                 redirect('/admin/login');
             }
 
+            // --- Database Updates (/admin/updates) ---
+            if ($action === 'run_migration' || $action === 'run_all_migrations') {
+                if (($admin['role'] ?? '') !== 'superadmin') {
+                    throw new RuntimeException(admin_bi('অনুমতি নেই: সুপার অ্যাডমিন প্রয়োজন।', 'Forbidden: Super Admin access required.'));
+                }
+                if ($action === 'run_migration') {
+                    $ver = trim((string) ($_POST['version'] ?? ''));
+                    $mRes = migration_run_one($ver);
+                    if (empty($mRes['ok'])) {
+                        throw new RuntimeException((string) ($mRes['error'] ?? 'Migration failed'));
+                    }
+                    migration_invalidate_flag();
+                    log_admin_action($admin, 'db_migration_run', 'migration', null, 'Applied ' . $ver);
+                    flash('success', admin_bi("মাইগ্রেশন {$ver} সফলভাবে সম্পন্ন হয়েছে।", "Migration {$ver} applied successfully."));
+                } else {
+                    $mRes = migration_run_pending();
+                    migration_invalidate_flag();
+                    if (empty($mRes['ok'])) {
+                        throw new RuntimeException(implode('; ', (array) ($mRes['errors'] ?? ['Migration failed'])));
+                    }
+                    $cnt = count((array) ($mRes['applied'] ?? []));
+                    log_admin_action($admin, 'db_migration_run_all', 'migration', null, "Applied {$cnt} pending migration(s)");
+                    flash('success', admin_bi("{$cnt}টি ডাটাবেজ আপডেট সফলভাবে সম্পন্ন হয়েছে।", "Applied {$cnt} pending database update(s)."));
+                }
+                redirect('/admin/updates');
+            }
+
+            if ($action === 'backup_before_update') {
+                if (($admin['role'] ?? '') !== 'superadmin') {
+                    throw new RuntimeException(admin_bi('অনুমতি নেই: সুপার অ্যাডমিন প্রয়োজন।', 'Forbidden: Super Admin access required.'));
+                }
+                require_once APP_ROOT . '/includes/maintenance.php';
+                $fname = run_daily_db_backup_if_due(true);
+                if (!$fname) {
+                    throw new RuntimeException('Failed to create pre-update database backup.');
+                }
+                log_admin_action($admin, 'db_backup_before_update', 'system', null, 'Pre-update snapshot: ' . $fname);
+                flash('success', admin_bi('আপডেটের আগে নিরাপদ ব্যাকআপ সংরক্ষিত হয়েছে: ', 'Safe pre-update backup saved: ') . $fname);
+                redirect('/admin/updates');
+            }
+
             if ($action === 'save_ip_allowlist') {
                 $rawList = trim((string) ($_POST['admin_ip_allowlist'] ?? ''));
                 db_exec("INSERT INTO settings (setting_key, setting_value) VALUES ('admin_ip_allowlist', ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)", [$rawList]);
@@ -1878,9 +3205,10 @@ function handle_admin_routes(string $route): never
                         if (@unlink($cf)) $removed++;
                     }
                 }
+                $removed += perf_clear_page_cache();
                 log_admin_action($admin, 'system_clean_cache', 'system', null, "Removed {$removed} cached file(s)");
                 flash('success', admin_bi("ক্যাশ পরিষ্কার হয়েছে ({$removed}টি ফাইল)।", "Cleaned {$removed} cached file(s)."));
-                redirect('/admin/system-health');
+                redirect(admin_return_url('/admin/system-health', false));
             }
 
             if ($action === 'run_daily_backup_now') {
@@ -2004,7 +3332,15 @@ function handle_admin_routes(string $route): never
 
     // 7. Render Admin Section
     $pendingOrdersCount = (int) (db_one("SELECT COUNT(*) AS c FROM orders WHERE status = 'pending'")['c'] ?? 0);
+    $pendingShopOrdersCount = (int) (db_one("SELECT COUNT(*) AS c FROM shop_orders WHERE status = 'pending' OR return_status = 'requested'")['c'] ?? 0);
+    $lowStockCount = (int) (db_one('SELECT COUNT(*) AS c FROM products WHERE is_active = 1 AND stock <= low_stock_threshold')['c'] ?? 0);
     $newInboxCount = (int) (db_one("SELECT COUNT(*) AS c FROM contact_messages WHERE status = 'new'")['c'] ?? 0);
+    $pendingMigrationsCount = admin_can($admin, 'updates') ? migration_pending_count() : 0;
+    $openSeoAlertsCount = 0;
+    try {
+        $openSeoAlertsCount = (int) (db_one('SELECT COUNT(*) AS c FROM seo_alerts WHERE is_resolved = 0')['c'] ?? 0);
+    } catch (Throwable $e) {
+    }
     ob_start();
     require APP_ROOT . '/pages/admin/' . $sectionFile . '.php';
     $adminContentHtml = ob_get_clean();

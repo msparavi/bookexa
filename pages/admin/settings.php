@@ -77,6 +77,13 @@ foreach ($rows as $r) {
                 <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'ঠিকানা' : 'Contact Address' ?></label>
                 <input type="text" name="contact_address" class="bx-input" value="<?= e($cfg['contact_address'] ?? '') ?>">
             </div>
+
+            <div style="margin-top:12px;padding:10px 12px;border-radius:10px;background:var(--bg-alt);border:1px solid var(--border);">
+                <label style="display:flex;align-items:center;gap:8px;min-height:40px;font-weight:700;color:var(--gold-text);">
+                    <input type="checkbox" name="demo_mode" value="1" <?= ($cfg['demo_mode'] ?? '0') === '1' || !empty(app_config('demo_mode', false)) ? 'checked' : '' ?>>
+                    <?= $lang === 'bn' ? 'ডেমো মোড চালু রাখুন (ডিলিট/সিকিউরিটি পরিবর্তন বন্ধ থাকবে)' : 'Enable Demo Mode (disables destructive actions & protects secrets)' ?>
+                </label>
+            </div>
         </section>
 
         <!-- Manual Payment Gateway Settings -->
@@ -327,6 +334,62 @@ foreach ($rows as $r) {
                     <input type="password" name="sms_gateway_api_key" class="bx-input" autocomplete="new-password" placeholder="<?= !empty($cfg['sms_gateway_api_key']) ? 'Saved — leave blank to keep' : 'Enter API key' ?>">
                 </div>
             </div>
+            <div style="margin-top:10px;max-width:260px;">
+                <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.85rem;">
+                    <?= $lang === 'bn' ? 'দৈনিক সর্বোচ্চ SMS বাজেট (গ্লোবাল)' : 'Global Daily SMS Budget' ?>
+                </label>
+                <input type="number" name="sms_daily_budget" min="0" max="1000000" class="bx-input" value="<?= e((string) ($cfg['sms_daily_budget'] ?? '200')) ?>">
+            </div>
+        </div>
+    </section>
+
+    <!-- White-Label Branding, Colors, Fonts, Footer & Social Links -->
+    <section class="bx-card" style="margin-bottom:20px;">
+        <h2 style="margin:0 0 8px;font-size:1.12rem;font-family:var(--font-serif);">
+            <?= $lang === 'bn' ? 'হোয়াইট-লেবেল ব্র্যান্ডিং, রঙ, ফন্ট ও সোশ্যাল লিংক' : 'White-Label Theme, Colors, Typography, Footer & Social Links' ?>
+        </h2>
+        <p class="bx-muted" style="margin:0 0 14px;font-size:0.86rem;">
+            <?= $lang === 'bn' ? 'কোনো কোড পরিবর্তন না করেই সাইটের রঙ, ফন্ট, ফুটার টেক্সট ও সোশ্যাল লিংক কাস্টমাইজ করুন।' : 'Customize colors, offline font pairing, footer text, and social channels cleanly with zero code edits.' ?>
+        </p>
+
+        <div class="bx-grid-3" style="gap:12px;margin-bottom:12px;">
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'প্রাইমারি রঙ' : 'Primary Brand Color' ?></label>
+                <input type="color" name="theme_primary_color" class="bx-input" style="height:44px;padding:4px;" value="<?= e(sanitize_hex_color((string) ($cfg['theme_primary_color'] ?? '#2B2F77'), '#2B2F77')) ?>">
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'অ্যাকসেন্ট রঙ' : 'Accent Color' ?></label>
+                <input type="color" name="theme_accent_color" class="bx-input" style="height:44px;padding:4px;" value="<?= e(sanitize_hex_color((string) ($cfg['theme_accent_color'] ?? '#F4A62A'), '#F4A62A')) ?>">
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'ফন্ট পেয়ার' : 'Font Pairing (Local / Offline)' ?></label>
+                <?php $fp = (string) ($cfg['theme_font_pair'] ?? 'hind_noto'); ?>
+                <select name="theme_font_pair" class="bx-select">
+                    <option value="hind_noto" <?= $fp === 'hind_noto' ? 'selected' : '' ?>>Bookexa Classic (Hind Siliguri + Noto Serif)</option>
+                    <option value="bengali_modern" <?= $fp === 'bengali_modern' ? 'selected' : '' ?>>Modern Sans (Hind Siliguri Uniform)</option>
+                    <option value="editorial_serif" <?= $fp === 'editorial_serif' ? 'selected' : '' ?>>Editorial Serif Dominant</option>
+                    <option value="system_clean" <?= $fp === 'system_clean' ? 'selected' : '' ?>>Clean System UI (Zero Webfonts)</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="bx-grid-2" style="gap:12px;margin-bottom:12px;">
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'ফুটার টেক্সট (বাংলা)' : 'Custom Footer Text (Bangla)' ?></label>
+                <input type="text" name="footer_text_bn" class="bx-input" placeholder="<?= e(t('tagline')) ?>" value="<?= e((string) ($cfg['footer_text_bn'] ?? '')) ?>">
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'ফুটার টেক্সট (English)' : 'Custom Footer Text (English)' ?></label>
+                <input type="text" name="footer_text_en" class="bx-input" placeholder="Your Bookstore Tagline" value="<?= e((string) ($cfg['footer_text_en'] ?? '')) ?>">
+            </div>
+        </div>
+
+        <div class="bx-grid-3" style="gap:10px;">
+            <div><label style="display:block;font-weight:600;margin-bottom:4px;">Facebook URL</label><input type="url" name="social_facebook" class="bx-input" placeholder="https://facebook.com/..." value="<?= e((string) ($cfg['social_facebook'] ?? '')) ?>"></div>
+            <div><label style="display:block;font-weight:600;margin-bottom:4px;">YouTube URL</label><input type="url" name="social_youtube" class="bx-input" placeholder="https://youtube.com/..." value="<?= e((string) ($cfg['social_youtube'] ?? '')) ?>"></div>
+            <div><label style="display:block;font-weight:600;margin-bottom:4px;">Telegram URL</label><input type="url" name="social_telegram" class="bx-input" placeholder="https://t.me/..." value="<?= e((string) ($cfg['social_telegram'] ?? '')) ?>"></div>
+            <div><label style="display:block;font-weight:600;margin-bottom:4px;">WhatsApp URL</label><input type="url" name="social_whatsapp" class="bx-input" placeholder="https://wa.me/8801..." value="<?= e((string) ($cfg['social_whatsapp'] ?? '')) ?>"></div>
+            <div><label style="display:block;font-weight:600;margin-bottom:4px;">Instagram URL</label><input type="url" name="social_instagram" class="bx-input" placeholder="https://instagram.com/..." value="<?= e((string) ($cfg['social_instagram'] ?? '')) ?>"></div>
         </div>
     </section>
 
@@ -363,7 +426,7 @@ foreach ($rows as $r) {
                 <textarea name="legal_refund_en" class="bx-input" rows="4"><?= e($cfg['legal_refund_en'] ?? '') ?></textarea>
             </div>
         </div>
-        <div class="bx-grid-2">
+        <div class="bx-grid-2" style="margin-bottom:12px;">
             <div>
                 <label style="display:block;font-weight:600;margin-bottom:4px;">Copyright &amp; Watermark Notice (Bangla)</label>
                 <textarea name="legal_copyright_bn" class="bx-input" rows="3"><?= e($cfg['legal_copyright_bn'] ?? '') ?></textarea>
@@ -371,6 +434,36 @@ foreach ($rows as $r) {
             <div>
                 <label style="display:block;font-weight:600;margin-bottom:4px;">Copyright &amp; Watermark Notice (English)</label>
                 <textarea name="legal_copyright_en" class="bx-input" rows="3"><?= e($cfg['legal_copyright_en'] ?? '') ?></textarea>
+            </div>
+        </div>
+        <div class="bx-grid-2" style="margin-bottom:12px;">
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;">Editorial Policy (Bangla)</label>
+                <textarea name="legal_editorial_bn" class="bx-input" rows="4"><?= e($cfg['legal_editorial_bn'] ?? '') ?></textarea>
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;">Editorial Policy (English)</label>
+                <textarea name="legal_editorial_en" class="bx-input" rows="4"><?= e($cfg['legal_editorial_en'] ?? '') ?></textarea>
+            </div>
+        </div>
+        <div class="bx-grid-2" style="margin-bottom:12px;">
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;">How We Review Books (Bangla)</label>
+                <textarea name="legal_review_policy_bn" class="bx-input" rows="4"><?= e($cfg['legal_review_policy_bn'] ?? '') ?></textarea>
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;">How We Review Books (English)</label>
+                <textarea name="legal_review_policy_en" class="bx-input" rows="4"><?= e($cfg['legal_review_policy_en'] ?? '') ?></textarea>
+            </div>
+        </div>
+        <div class="bx-grid-2">
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;">Corrections Policy (Bangla)</label>
+                <textarea name="legal_corrections_bn" class="bx-input" rows="3"><?= e($cfg['legal_corrections_bn'] ?? '') ?></textarea>
+            </div>
+            <div>
+                <label style="display:block;font-weight:600;margin-bottom:4px;">Corrections Policy (English)</label>
+                <textarea name="legal_corrections_en" class="bx-input" rows="3"><?= e($cfg['legal_corrections_en'] ?? '') ?></textarea>
             </div>
         </div>
     </section>

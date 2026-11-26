@@ -4,6 +4,11 @@ declare(strict_types=1);
 define('APP_ROOT', dirname(__DIR__));
 $config = require APP_ROOT . '/config/config.php';
 
+if (PHP_SAPI !== 'cli' && extension_loaded('zlib') && !headers_sent()) {
+    @ini_set('zlib.output_compression', 'On');
+    @ini_set('zlib.output_compression_level', '6');
+}
+
 date_default_timezone_set($config['timezone'] ?? 'Asia/Dhaka');
 
 $logDir = APP_ROOT . '/storage/logs';
@@ -125,6 +130,7 @@ function app_config(?string $key = null, $default = null)
 }
 
 require_once APP_ROOT . '/includes/db.php';
+require_once APP_ROOT . '/includes/perf.php';
 require_once APP_ROOT . '/includes/csrf.php';
 require_once APP_ROOT . '/includes/lang.php';
 require_once APP_ROOT . '/includes/helpers.php';
@@ -133,12 +139,22 @@ require_once APP_ROOT . '/includes/illustrations.php';
 require_once APP_ROOT . '/includes/auth.php';
 require_once APP_ROOT . '/includes/features.php';
 require_once APP_ROOT . '/includes/browse_helpers.php';
+require_once APP_ROOT . '/includes/shop.php';
+require_once APP_ROOT . '/includes/services/OrderService.php';
+require_once APP_ROOT . '/includes/services/CouponService.php';
+require_once APP_ROOT . '/includes/services/SearchService.php';
 require_once APP_ROOT . '/includes/payments/PaymentGatewayManager.php';
 require_once APP_ROOT . '/includes/sms/SmsGatewayManager.php';
 require_once APP_ROOT . '/includes/cdn.php';
 require_once APP_ROOT . '/includes/packager.php';
+require_once APP_ROOT . '/includes/migrations.php';
+require_once APP_ROOT . '/includes/seo.php';
+require_once APP_ROOT . '/includes/content.php';
+require_once APP_ROOT . '/includes/aeo.php';
+require_once APP_ROOT . '/includes/growth.php';
 require_once APP_ROOT . '/includes/maintenance.php';
 
+app_secret();
 handle_language_switch();
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET' && !str_contains($_SERVER['REQUEST_URI'] ?? '', '/api/')) {

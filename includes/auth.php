@@ -1,9 +1,12 @@
 <?php
 declare(strict_types=1);
 
-function current_user(): ?array
+function current_user(bool $reset = false): ?array
 {
     static $cached = false;
+    if ($reset) {
+        $cached = false;
+    }
     if ($cached !== false) {
         return $cached;
     }
@@ -236,6 +239,10 @@ function login_user_session(array $user, ?int $replaceDeviceId = null): void
     $_SESSION['active_session_token'] = $token;
     $_SESSION['device_token'] = $devToken;
     $_SESSION['device_ping_at'] = time();
+    current_user(true);
+    if (function_exists('shop_merge_guest_cart')) {
+        shop_merge_guest_cart($uid);
+    }
 }
 
 function find_user_by_identifier(string $identifier): ?array

@@ -76,8 +76,65 @@ function user_can_review_item(int $userId, int $itemId): bool
     return false;
 }
 
+function &item_rating_cache_store(): array
+{
+    static $store = [];
+    return $store;
+}
+
+/**
+ * Batch-preload approved review ratings (+ optional user wishlist map) in 1 query to avoid N+1 on grids.
+ */
+function preload_items_card_meta(array $items): void
+{
+    $ids = [];
+    foreach ($items as $it) {
+        $id = is_array($it) ? (int) ($it['id'] ?? 0) : (int) $it;
+        if ($id > 0) {
+            $ids[$id] = true;
+        }
+    }
+    if (!$ids) {
+        return;
+    }
+    $idList = array_keys($ids);
+    $store = &item_rating_cache_store();
+    $missing = array_values(array_filter($idList, static fn(int $id): bool => !isset($store[$id])));
+    if ($missing) {
+        foreach ($missing as $mid) {
+            $store[$mid] = ['count' => 0, 'avg' => 0.0];
+        }
+        try {
+            $ph = implode(',', array_fill(0, count($missing), '?'));
+            $rows = db_all(
+                "SELECT item_id, COUNT(*) AS cnt, COALESCE(AVG(rating), 0) AS avg_rating
+                 FROM reviews
+                 WHERE item_id IN ({$ph}) AND status = 'approved'
+                 GROUP BY item_id",
+                $missing
+            );
+            foreach ($rows as $r) {
+                $iid = (int) $r['item_id'];
+                $store[$iid] = [
+                    'count' => (int) ($r['cnt'] ?? 0),
+                    'avg'   => round((float) ($r['avg_rating'] ?? 0), 1),
+                ];
+            }
+        } catch (Throwable $e) {
+        }
+    }
+    $u = function_exists('current_user') ? current_user() : null;
+    if ($u) {
+        user_wishlist_map((int) $u['id']);
+    }
+}
+
 function item_rating_summary(int $itemId): array
 {
+    $store = &item_rating_cache_store();
+    if (isset($store[$itemId])) {
+        return $store[$itemId];
+    }
     try {
         $row = db_one(
             "SELECT COUNT(*) AS cnt, COALESCE(AVG(rating), 0) AS avg_rating
@@ -85,10 +142,12 @@ function item_rating_summary(int $itemId): array
              WHERE item_id = ? AND status = 'approved'",
             [$itemId]
         );
-        return [
+        $res = [
             'count' => (int) ($row['cnt'] ?? 0),
             'avg'   => round((float) ($row['avg_rating'] ?? 0), 1),
         ];
+        $store[$itemId] = $res;
+        return $res;
     } catch (Throwable $e) {
         return ['count' => 0, 'avg' => 0.0];
     }

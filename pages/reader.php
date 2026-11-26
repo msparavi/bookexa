@@ -45,9 +45,9 @@ $searchBookUrl = ($readerMode === 'pages' && $streamToken !== '')
     <link rel="icon" type="image/svg+xml" href="<?= e(asset('assets/img/favicon.svg')) ?>">
     <link rel="icon" type="image/png" sizes="32x32" href="<?= e(asset('assets/img/favicon-32x32.png')) ?>">
     <link rel="apple-touch-icon" sizes="180x180" href="<?= e(asset('assets/img/apple-touch-icon.png')) ?>">
-    <link rel="stylesheet" href="<?= e(asset('assets/css/fonts.css')) ?>">
-    <link rel="stylesheet" href="<?= e(asset('assets/css/reader.css')) ?>">
-    <script src="<?= e(asset('assets/js/theme-init.js')) ?>"></script>
+    <link rel="stylesheet" href="<?= e(perf_dist_asset_url('fonts_css', 'assets/css/fonts.css')) ?>">
+    <link rel="stylesheet" href="<?= e(perf_dist_asset_url('reader_css', 'assets/css/reader.css')) ?>">
+    <script src="<?= e(perf_dist_asset_url('theme_init_js', 'assets/js/theme-init.js')) ?>" defer></script>
 </head>
 <body class="bx-reader-body">
 <div class="bx-reader-shell" id="reader-shell">
@@ -78,6 +78,9 @@ $searchBookUrl = ($readerMode === 'pages' && $streamToken !== '')
                 <span class="bx-rtheme-moon"><?= icon('moon', 'bx-icon') ?></span>
                 <span class="bx-rtheme-sepia"><?= icon('sepia', 'bx-icon') ?></span>
                 <span class="bx-rtheme-sun"><?= icon('sun', 'bx-icon') ?></span>
+            </button>
+            <button type="button" class="bx-rbtn" id="btn-share-progress" title="<?= e($lang === 'bn' ? 'আপনার পড়ার অগ্রগতি শেয়ার করুন' : 'Share your progress') ?>" aria-label="<?= e($lang === 'bn' ? 'আপনার পড়ার অগ্রগতি শেয়ার করুন' : 'Share your progress') ?>">
+                <?= icon('globe', 'bx-icon') ?>
             </button>
             <button type="button" class="bx-rbtn bx-hide-sm" id="btn-fullscreen" title="<?= e($lang === 'bn' ? 'ফুলস্ক্রিন' : 'Toggle Fullscreen') ?>" aria-label="<?= e($lang === 'bn' ? 'ফুলস্ক্রিন' : 'Toggle Fullscreen') ?>">
                 <?= icon('fullscreen', 'bx-icon') ?>
@@ -239,6 +242,21 @@ $searchBookUrl = ($readerMode === 'pages' && $streamToken !== '')
     </div>
 </div>
 
+<!-- Progress Share Sheet (URL & page milestone only; never exposes protected PDF pages) -->
+<div class="bx-reader-sheet" id="bx-share-sheet" role="dialog" aria-modal="true" aria-label="<?= e($lang === 'bn' ? 'অগ্রগতি শেয়ার করুন' : 'Share your reading progress') ?>">
+    <div class="bx-reader-sheet-head">
+        <strong><?= e($lang === 'bn' ? 'পড়ার অগ্রগতি শেয়ার করুন' : 'Share Your Progress') ?></strong>
+        <button type="button" class="bx-rbtn" id="btn-close-share-sheet" aria-label="Close">×</button>
+    </div>
+    <p id="bx-share-milestone-text" style="margin:0 0 12px;font-size:0.9rem;color:var(--r-muted);line-height:1.55;"></p>
+    <div class="bx-share-progress-actions">
+        <a id="bx-rshare-fb" target="_blank" rel="noopener noreferrer" class="bx-rbtn" href="#">Facebook</a>
+        <a id="bx-rshare-wa" target="_blank" rel="noopener noreferrer" class="bx-rbtn" href="#">WhatsApp</a>
+        <a id="bx-rshare-tg" target="_blank" rel="noopener noreferrer" class="bx-rbtn" href="#">Telegram</a>
+        <button type="button" class="bx-rbtn bx-rbtn-accent" id="bx-rshare-copy"><?= $lang === 'bn' ? 'লিংক কপি করুন' : 'Copy Book Link' ?></button>
+    </div>
+</div>
+
 <?php if ($readerMode === 'pdfjs'): ?>
 <script src="<?= e(asset('assets/vendor/pdfjs/pdf.min.js')) ?>"></script>
 <?php endif; ?>
@@ -275,7 +293,10 @@ $searchBookUrl = ($readerMode === 'pages' && $streamToken !== '')
         : ($lang === 'bn' ? 'এই বইয়ের সুরক্ষিত পৃষ্ঠাগুলো এখনও প্রস্তুত হয়নি। অনুগ্রহ করে অ্যাডমিনের সাথে যোগাযোগ করুন।' : 'Protected pages for this book are still being prepared. Please check back shortly.'),
     'retryLabel'    => $lang === 'bn' ? 'আবার চেষ্টা করুন' : 'Retry',
     'reloadLabel'   => $lang === 'bn' ? 'রিডার রিলোড করুন' : 'Reload Session',
+    'bookPublicUrl' => absolute_url_for_lang('/book/' . rawurlencode((string) $item['slug']), $lang),
+    'bookTitle'     => bi($item, 'title'),
+    'shareLang'     => $lang,
 ], JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
-<script src="<?= e(asset('assets/js/reader.js')) ?>"></script>
+<script src="<?= e(perf_dist_asset_url('reader_js', 'assets/js/reader.js')) ?>"></script>
 </body>
 </html>

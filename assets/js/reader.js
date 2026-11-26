@@ -139,10 +139,53 @@
     });
 
     // Settings & Thumbnails Sheets
+    const shareSheet       = document.getElementById('bx-share-sheet');
+    const btnShareProg     = document.getElementById('btn-share-progress');
+    const btnCloseShare    = document.getElementById('btn-close-share-sheet');
+    const shareMilestoneEl = document.getElementById('bx-share-milestone-text');
+    const rShareFb         = document.getElementById('bx-rshare-fb');
+    const rShareWa         = document.getElementById('bx-rshare-wa');
+    const rShareTg         = document.getElementById('bx-rshare-tg');
+    const rShareCopy       = document.getElementById('bx-rshare-copy');
+
     function closeSheets() {
         if (settingsSheet) settingsSheet.classList.remove('open');
+        if (shareSheet) shareSheet.classList.remove('open');
         if (thumbSidebar && (isTouchDevice() || isNarrowViewport())) thumbSidebar.classList.remove('open');
     }
+    btnShareProg?.addEventListener('click', () => {
+        if (!shareSheet || !cfg.bookPublicUrl) return;
+        const wasOpen = shareSheet.classList.contains('open');
+        closeSheets();
+        if (wasOpen) return;
+        const isBn = cfg.shareLang !== 'en';
+        const title = cfg.bookTitle || document.title;
+        const milestone = isBn
+            ? `আমি Bookexa-তে "${title}" বইয়ের ${currentPage}/${allowedPages || currentPage} পৃষ্ঠা পড়ছি!`
+            : `I am on page ${currentPage}/${allowedPages || currentPage} of "${title}" on Bookexa!`;
+        if (shareMilestoneEl) shareMilestoneEl.textContent = milestone;
+        const encUrl = encodeURIComponent(cfg.bookPublicUrl);
+        const encTxt = encodeURIComponent(milestone);
+        if (rShareFb) rShareFb.href = `https://www.facebook.com/sharer/sharer.php?u=${encUrl}`;
+        if (rShareWa) rShareWa.href = `https://wa.me/?text=${encTxt}%20${encUrl}`;
+        if (rShareTg) rShareTg.href = `https://t.me/share/url?url=${encUrl}&text=${encTxt}`;
+        shareSheet.classList.add('open');
+    });
+    btnCloseShare?.addEventListener('click', () => shareSheet?.classList.remove('open'));
+    shareSheet?.addEventListener('click', (e) => {
+        if (e.target === shareSheet) shareSheet.classList.remove('open');
+    });
+    rShareCopy?.addEventListener('click', async () => {
+        if (!cfg.bookPublicUrl) return;
+        try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                await navigator.clipboard.writeText(cfg.bookPublicUrl);
+            }
+            const orig = rShareCopy.textContent;
+            rShareCopy.textContent = cfg.shareLang !== 'en' ? 'লিংক কপি হয়েছে!' : 'Copied!';
+            setTimeout(() => { rShareCopy.textContent = orig; }, 1600);
+        } catch (err) {}
+    });
     btnOpenSet?.addEventListener('click', () => {
         if (thumbSidebar && (isTouchDevice() || isNarrowViewport())) thumbSidebar.classList.remove('open');
         settingsSheet?.classList.add('open');

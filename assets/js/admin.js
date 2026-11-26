@@ -236,6 +236,7 @@
             if (el.querySelector('input')) return;
             const folderId = el.getAttribute('data-inline-rename');
             const origText = el.textContent.trim();
+            el.classList.add('is-editing');
             const inp = document.createElement('input');
             inp.type = 'text'; inp.className = 'bx-input';
             inp.style.padding = '4px 8px'; inp.style.maxWidth = '190px';
@@ -244,6 +245,7 @@
 
             const save = async () => {
                 const next = inp.value.trim();
+                el.classList.remove('is-editing');
                 if (!next || next === origText) { el.textContent = origText; return; }
                 const endpoint = el.getAttribute('data-endpoint');
                 try {
@@ -260,7 +262,7 @@
             inp.addEventListener('blur', save);
             inp.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') { e.preventDefault(); inp.blur(); }
-                if (e.key === 'Escape') { el.textContent = origText; }
+                if (e.key === 'Escape') { el.classList.remove('is-editing'); el.textContent = origText; }
             });
         });
     });
@@ -299,8 +301,22 @@
         });
     });
 
-    // Folder Reparent via Desktop Drag AND Mobile Touch Drag Handle
+    // Reorder mode toggle (drag handle appears only when enabled)
     const treeRoot = document.getElementById('bx-folder-tree-root');
+    const reorderToggleBtn = document.getElementById('btn-toggle-reorder');
+    if (treeRoot && reorderToggleBtn) {
+        reorderToggleBtn.addEventListener('click', () => {
+            const active = treeRoot.classList.toggle('is-reorder-mode');
+            reorderToggleBtn.setAttribute('aria-pressed', String(active));
+            reorderToggleBtn.classList.toggle('bx-btn-primary', active);
+            reorderToggleBtn.classList.toggle('bx-btn-outline', !active);
+            treeRoot.querySelectorAll('.bx-tree-row[data-folder-id]').forEach((r) => {
+                r.setAttribute('draggable', active ? 'true' : 'false');
+            });
+        });
+    }
+
+    // Folder Reparent via Desktop Drag AND Mobile Touch Drag Handle
     if (treeRoot) {
         let draggedFolderId = null;
         let touchHoverRow = null;
@@ -478,6 +494,35 @@
     if (bulkSelectAll) {
         bulkSelectAll.addEventListener('change', () => {
             document.querySelectorAll('.bx-bulk-cb').forEach((cb) => { cb.checked = bulkSelectAll.checked; });
+        });
+    }
+    document.querySelectorAll('.bx-select-all-targets').forEach((master) => {
+        const sel = master.getAttribute('data-checkbox-target');
+        if (!sel) return;
+        master.addEventListener('change', () => {
+            document.querySelectorAll(sel).forEach((cb) => { cb.checked = master.checked; });
+        });
+    });
+
+    const addOverrideBtn = document.getElementById('bx-add-district-override');
+    const overrideList = document.getElementById('bx-district-overrides-list');
+    if (addOverrideBtn && overrideList) {
+        addOverrideBtn.addEventListener('click', () => {
+            const first = overrideList.querySelector('.bx-district-override-row');
+            if (!first) return;
+            const clone = first.cloneNode(true);
+            clone.querySelectorAll('select, input').forEach((el) => { el.value = ''; });
+            overrideList.appendChild(clone);
+        });
+        overrideList.addEventListener('click', (e) => {
+            const rm = e.target.closest('[data-remove-override-row]');
+            if (!rm) return;
+            const rows = overrideList.querySelectorAll('.bx-district-override-row');
+            if (rows.length > 1) {
+                rm.closest('.bx-district-override-row')?.remove();
+            } else {
+                rm.closest('.bx-district-override-row')?.querySelectorAll('select, input').forEach((el) => { el.value = ''; });
+            }
         });
     }
 
