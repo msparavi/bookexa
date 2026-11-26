@@ -21,7 +21,7 @@ $product = $catalog[$shopSlug] ?? reset($catalog);
     <div class="bx-detail-grid">
         <div class="bx-detail-stage">
             <div class="bx-detail-book-3d">
-                <img src="<?= e(asset($product['cover'])) ?>" alt="<?= e(bi($product, 'title')) ?>" decoding="async">
+                <img src="<?= e(asset($product['cover'])) ?>" alt="<?= e(bi($product, 'title')) ?>" width="400" height="600" decoding="async">
             </div>
         </div>
         <div class="bx-card">

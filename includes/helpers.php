@@ -6,13 +6,62 @@ function e(?string $str): string
     return htmlspecialchars((string) $str, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
-function url(string $path = '/'): string
+function split_path_and_query(string $path): array
 {
-    $clean = '/' . ltrim($path, '/');
-    if ($clean === '//') {
-        $clean = '/';
+    $qPos = strpos($path, '?');
+    $cleanPath = $qPos === false ? $path : substr($path, 0, $qPos);
+    $queryPart = $qPos === false ? '' : substr($path, $qPos);
+    $norm = '/' . ltrim($cleanPath, '/');
+    if ($norm === '/en' || str_starts_with($norm, '/en/')) {
+        $norm = '/' . ltrim(substr($norm, 3), '/');
     }
-    return BASE_PATH . $clean;
+    if ($norm === '' || $norm === '//') {
+        $norm = '/';
+    }
+    return [$norm, $queryPart];
+}
+
+function url_for_lang(string $path, string $targetLang): string
+{
+    [$norm, $query] = split_path_and_query($path);
+    if ($targetLang === 'en' && function_exists('is_bilingual_public_route') && is_bilingual_public_route($norm)) {
+        $enPath = '/en' . ($norm === '/' ? '' : $norm);
+        return BASE_PATH . $enPath . $query;
+    }
+    return BASE_PATH . $norm . $query;
+}
+
+function absolute_url_for_lang(string $path, string $targetLang): string
+{
+    [$norm, $query] = split_path_and_query($path);
+    if ($targetLang === 'en' && function_exists('is_bilingual_public_route') && is_bilingual_public_route($norm)) {
+        return BASE_URL . '/en' . ($norm === '/' ? '' : $norm) . $query;
+    }
+    return BASE_URL . $norm . $query;
+}
+
+function url(string $path = '/', ?string $forceLang = null): string
+{
+    [$norm, $query] = split_path_and_query($path);
+    if ($forceLang !== null) {
+        return url_for_lang($path, $forceLang);
+    }
+    if (function_exists('is_bilingual_public_route') && is_bilingual_public_route($norm) && function_exists('current_lang') && current_lang() === 'en') {
+        return url_for_lang($path, 'en');
+    }
+    return BASE_PATH . $norm . $query;
+}
+
+function absolute_asset_url(string $path): string
+{
+    $resolved = asset($path);
+    if (str_starts_with($resolved, 'http://') || str_starts_with($resolved, 'https://')) {
+        return $resolved;
+    }
+    if (BASE_PATH !== '' && str_starts_with($resolved, BASE_PATH . '/')) {
+        $resolved = substr($resolved, strlen(BASE_PATH));
+    }
+    return BASE_URL . '/' . ltrim($resolved, '/');
 }
 
 function asset(string $path): string
@@ -157,7 +206,64 @@ function invalidate_folder_and_sitemap_cache(bool $recomputeCounts = true): void
     }
     $base = APP_ROOT . '/storage/cache';
     @unlink($base . '/folder_tree.json');
-    @unlink($base . '/sitemap.xml');
+    foreach (['sitemap.xml', 'sitemap-static.xml', 'sitemap-folders.xml', 'sitemap-books.xml'] as $sm) {
+        @unlink($base . '/' . $sm);
+    }
+}
+
+function folder_path_string(int $folderId): string
+{
+    $trail = [];
+    $seen = [];
+    $curr = $folderId;
+    while ($curr !== null && !isset($seen[$curr])) {
+        $seen[$curr] = true;
+        $row = db_one('SELECT id, parent_id, slug FROM folders WHERE id = ? LIMIT 1', [$curr]);
+        if (!$row) {
+            break;
+        }
+        array_unshift($trail, (string) $row['slug']);
+        $curr = $row['parent_id'] !== null ? (int) $row['parent_id'] : null;
+    }
+    return implode('/', $trail);
+}
+
+function record_slug_history(string $entityType, int $entityId, string $oldPath): void
+{
+    $clean = trim($oldPath, '/');
+    if ($entityId <= 0 || $clean === '' || !in_array($entityType, ['folder', 'item'], true)) {
+        return;
+    }
+    try {
+        db_exec(
+            'INSERT INTO slug_history (entity_type, entity_id, old_path) VALUES (?, ?, ?)
+             ON DUPLICATE KEY UPDATE entity_id = VALUES(entity_id), created_at = NOW()',
+            [$entityType, $entityId, $clean]
+        );
+    } catch (Throwable $e) {
+    }
+}
+
+function prune_self_slug_history(string $entityType, string $currentPath): void
+{
+    $clean = trim($currentPath, '/');
+    if ($clean === '' || !in_array($entityType, ['folder', 'item'], true)) {
+        return;
+    }
+    try {
+        db_exec('DELETE FROM slug_history WHERE entity_type = ? AND old_path = ?', [$entityType, $clean]);
+    } catch (Throwable $e) {
+    }
+}
+
+function folder_full_url_lang(int $folderId, string $targetLang): string
+{
+    $trail = folder_breadcrumbs($folderId);
+    if (empty($trail)) {
+        return url_for_lang('/pdf', $targetLang);
+    }
+    $slugs = array_map(fn($f) => rawurlencode($f['slug']), $trail);
+    return url_for_lang('/pdf/' . implode('/', $slugs), $targetLang);
 }
 
 /**

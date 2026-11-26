@@ -101,7 +101,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 }
 
                 // Also apply 003_media_sync & 004_drive_optional migrations cleanly if present and register local /uploads images
-                foreach (['003_media_sync.sql', '004_drive_optional_and_logs.sql', '005_security_reliability_fixes.sql', '006_payment_order_upgrade.sql', '007_user_features.sql', '008_admin_productivity.sql', '009_server_load_optimization.sql'] as $migFile) {
+                foreach (['003_media_sync.sql', '004_drive_optional_and_logs.sql', '005_security_reliability_fixes.sql', '006_payment_order_upgrade.sql', '007_user_features.sql', '008_admin_productivity.sql', '009_server_load_optimization.sql', '010_seo_and_slug_history.sql'] as $migFile) {
                     $migPath = APP_ROOT . '/database/migrations/' . $migFile;
                     if (is_file($migPath)) {
                         foreach (bookexa_install_split_sql((string) file_get_contents($migPath)) as $msql) {

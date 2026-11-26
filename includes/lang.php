@@ -87,14 +87,58 @@ function get_default_language_strings(): array
     ];
 }
 
+function is_bilingual_public_route(string $logicalPath): bool
+{
+    $p = '/' . ltrim($logicalPath, '/');
+    if ($p === '/' || $p === '/pdf' || $p === '/shop' || $p === '/search' || $p === '/about' || $p === '/contact' || $p === '/terms' || $p === '/privacy' || $p === '/refund-policy' || $p === '/copyright') {
+        return true;
+    }
+    return str_starts_with($p, '/pdf/') || str_starts_with($p, '/book/') || str_starts_with($p, '/shop/');
+}
+
 function handle_language_switch(): void
 {
+    $cookiePath = BASE_PATH !== '' ? BASE_PATH : '/';
+    if (defined('BX_URL_HAS_EN') && BX_URL_HAS_EN && defined('BX_LOGICAL_ROUTE') && is_bilingual_public_route(BX_LOGICAL_ROUTE)) {
+        $_SESSION['lang'] = 'en';
+        $_SESSION['bx_lang_inited'] = 1;
+        setcookie('bx_lang', 'en', [
+            'expires'  => time() + 86400 * 365,
+            'path'     => $cookiePath,
+            'httponly' => false,
+            'samesite' => 'Lax',
+        ]);
+        return;
+    }
+
     if (isset($_GET['lang']) && in_array($_GET['lang'], ['bn', 'en'], true)) {
         $lang = $_GET['lang'];
         $_SESSION['lang'] = $lang;
+        $_SESSION['bx_lang_inited'] = 1;
         setcookie('bx_lang', $lang, [
             'expires'  => time() + 86400 * 365,
-            'path'     => BASE_PATH !== '' ? BASE_PATH : '/',
+            'path'     => $cookiePath,
+            'httponly' => false,
+            'samesite' => 'Lax',
+        ]);
+        return;
+    }
+
+    if (defined('BX_LOGICAL_ROUTE') && is_bilingual_public_route(BX_LOGICAL_ROUTE)) {
+        $firstVisitDefaultEn = !isset($_SESSION['bx_lang_inited'])
+            && ($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'GET'
+            && BX_LOGICAL_ROUTE === '/'
+            && ($_COOKIE['bx_lang'] ?? '') === 'en';
+        $_SESSION['bx_lang_inited'] = 1;
+        if ($firstVisitDefaultEn) {
+            $qStr = (string) ($_SERVER['QUERY_STRING'] ?? '');
+            header('Location: ' . BASE_PATH . '/en' . ($qStr !== '' ? ('?' . $qStr) : ''), true, 302);
+            exit;
+        }
+        $_SESSION['lang'] = 'bn';
+        setcookie('bx_lang', 'bn', [
+            'expires'  => time() + 86400 * 365,
+            'path'     => $cookiePath,
             'httponly' => false,
             'samesite' => 'Lax',
         ]);
@@ -103,6 +147,15 @@ function handle_language_switch(): void
 
 function current_lang(): string
 {
+    if (defined('BX_URL_HAS_EN') && BX_URL_HAS_EN && defined('BX_LOGICAL_ROUTE') && is_bilingual_public_route(BX_LOGICAL_ROUTE)) {
+        return 'en';
+    }
+    if (isset($_GET['lang']) && in_array($_GET['lang'], ['bn', 'en'], true)) {
+        return $_GET['lang'];
+    }
+    if (defined('BX_LOGICAL_ROUTE') && is_bilingual_public_route(BX_LOGICAL_ROUTE)) {
+        return 'bn';
+    }
     if (!empty($_SESSION['lang']) && in_array($_SESSION['lang'], ['bn', 'en'], true)) {
         return $_SESSION['lang'];
     }

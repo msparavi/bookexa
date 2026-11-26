@@ -898,6 +898,11 @@ main, section, article, aside, .bx-card,
 }
 .bx-detail-wish { top: 10px; right: 10px; z-index: 4; }
 .bx-detail-actions { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.bx-share-bar {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--border);
+}
+.bx-share-label { font-size: 0.85rem; font-weight: 700; color: var(--text-muted); margin-right: 4px; }
 
 /* Auth Split Layout & Password Toggle */
 .bx-auth-page { padding-top: clamp(20px, 4vw, 38px); padding-bottom: 24px; }

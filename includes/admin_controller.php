@@ -8,6 +8,41 @@ function admin_bi(string $bn, string $en): string
     return current_lang() === 'bn' ? $bn : $en;
 }
 
+function collect_folder_subtree_paths(int $rootFolderId): array
+{
+    $all = db_all('SELECT id, parent_id, slug FROM folders');
+    $byParent = [];
+    $byId = [];
+    foreach ($all as $r) {
+        $byId[(int) $r['id']] = $r;
+        $byParent[$r['parent_id'] === null ? 0 : (int) $r['parent_id']][] = (int) $r['id'];
+    }
+    $paths = [];
+    $q = [$rootFolderId];
+    while ($q) {
+        $fid = array_shift($q);
+        $p = folder_path_string($fid);
+        if ($p !== '') {
+            $paths[$fid] = $p;
+        }
+        foreach ($byParent[$fid] ?? [] as $cid) {
+            $q[] = $cid;
+        }
+    }
+    return $paths;
+}
+
+function record_folder_subtree_slug_changes(array $beforePaths): void
+{
+    foreach ($beforePaths as $fid => $oldPath) {
+        $newPath = folder_path_string((int) $fid);
+        if ($oldPath !== '' && $newPath !== '' && $oldPath !== $newPath) {
+            record_slug_history('folder', (int) $fid, $oldPath);
+            prune_self_slug_history('folder', $newPath);
+        }
+    }
+}
+
 /**
  * Resolve safe in-panel return URL so saves/actions keep the user's current filters & page.
  */
@@ -306,8 +341,10 @@ function handle_admin_routes(string $route): never
                 if (!$curr) {
                     throw new RuntimeException(admin_bi('ফোল্ডার খুঁজে পাওয়া যায়নি।', 'Folder not found.'));
                 }
+                $oldPaths = collect_folder_subtree_paths($id);
                 $uniqueSlug = generate_unique_folder_slug($curr['slug'], $newParentId, $id);
                 db_exec('UPDATE folders SET parent_id = ?, slug = ? WHERE id = ?', [$newParentId, $uniqueSlug, $id]);
+                record_folder_subtree_slug_changes($oldPaths);
                 invalidate_folder_and_sitemap_cache();
                 log_admin_action($admin, 'folder_move', 'folder', $id, $curr['name_en'] . ' -> parent #' . ($newParentId ?? 0));
                 admin_json_response(['ok' => true, 'message' => admin_bi('ফোল্ডার সরানো হয়েছে।', 'Folder moved.')]);
@@ -1015,6 +1052,10 @@ function handle_admin_routes(string $route): never
                 $slugInput = trim((string) ($_POST['slug'] ?? ''));
                 $descBn = trim((string) ($_POST['description_bn'] ?? ''));
                 $descEn = trim((string) ($_POST['description_en'] ?? ''));
+                $seoTitleBn = mb_substr(trim((string) ($_POST['seo_title_bn'] ?? '')), 0, 220) ?: null;
+                $seoTitleEn = mb_substr(trim((string) ($_POST['seo_title_en'] ?? '')), 0, 220) ?: null;
+                $seoDescBn  = mb_substr(trim((string) ($_POST['seo_description_bn'] ?? '')), 0, 320) ?: null;
+                $seoDescEn  = mb_substr(trim((string) ($_POST['seo_description_en'] ?? '')), 0, 320) ?: null;
                 $accent = trim((string) ($_POST['accent_color'] ?? '#232766'));
                 $sortOrder = (int) ($_POST['sort_order'] ?? 0);
                 $publishAt = admin_parse_datetime($_POST['publish_at'] ?? null);
@@ -1043,21 +1084,24 @@ function handle_admin_routes(string $route): never
                 if ($id === null) {
                     $thumb = $uploadedThumb ?: 'uploads/folders/academic.svg';
                     db_exec(
-                        'INSERT INTO folders (parent_id, slug, name_bn, name_en, description_bn, description_en, thumbnail, accent_color, sort_order, is_active, publish_at, unpublish_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $thumb, $accent, $sortOrder, $isActive, $publishAt, $unpublishAt]
+                        'INSERT INTO folders (parent_id, slug, name_bn, name_en, description_bn, description_en, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, thumbnail, accent_color, sort_order, is_active, publish_at, unpublish_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $thumb, $accent, $sortOrder, $isActive, $publishAt, $unpublishAt]
                     );
                     $newId = (int) db()->lastInsertId();
+                    prune_self_slug_history('folder', folder_path_string($newId));
                     log_admin_action($admin, 'folder_create', 'folder', $newId, $nameEn . ' (/' . $slug . ')');
                     flash('success', admin_bi('ফোল্ডার তৈরি হয়েছে: /', 'Folder created with slug /') . $slug);
                 } else {
+                    $oldPaths = collect_folder_subtree_paths($id);
                     $existing = db_one('SELECT thumbnail FROM folders WHERE id = ?', [$id]);
                     $oldThumb = $existing['thumbnail'] ?? null;
                     $thumb = $uploadedThumb ?: ($oldThumb ?: 'uploads/folders/academic.svg');
                     db_exec(
-                        'UPDATE folders SET parent_id=?, slug=?, name_bn=?, name_en=?, description_bn=?, description_en=?, thumbnail=?, accent_color=?, sort_order=?, is_active=?, publish_at=?, unpublish_at=? WHERE id=?',
-                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $thumb, $accent, $sortOrder, $isActive, $publishAt, $unpublishAt, $id]
+                        'UPDATE folders SET parent_id=?, slug=?, name_bn=?, name_en=?, description_bn=?, description_en=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, thumbnail=?, accent_color=?, sort_order=?, is_active=?, publish_at=?, unpublish_at=? WHERE id=?',
+                        [$parentId, $slug, $nameBn, $nameEn, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $thumb, $accent, $sortOrder, $isActive, $publishAt, $unpublishAt, $id]
                     );
+                    record_folder_subtree_slug_changes($oldPaths);
                     if ($uploadedThumb && $oldThumb && $oldThumb !== $thumb) {
                         media_try_delete_unused_image((string) $oldThumb);
                     }
@@ -1079,8 +1123,10 @@ function handle_admin_routes(string $route): never
                 }
                 $curr = db_one('SELECT slug, name_en FROM folders WHERE id = ?', [$id]);
                 if ($curr) {
+                    $oldPaths = collect_folder_subtree_paths($id);
                     $uniqueSlug = generate_unique_folder_slug($curr['slug'], $newParentId, $id);
                     db_exec('UPDATE folders SET parent_id = ?, slug = ? WHERE id = ?', [$newParentId, $uniqueSlug, $id]);
+                    record_folder_subtree_slug_changes($oldPaths);
                     invalidate_folder_and_sitemap_cache();
                     log_admin_action($admin, 'folder_move', 'folder', $id, $curr['name_en'] . ' -> parent #' . ($newParentId ?? 0));
                     flash('success', admin_bi('ফোল্ডার সরানো হয়েছে।', 'Folder moved.'));
@@ -1134,6 +1180,10 @@ function handle_admin_routes(string $route): never
                 $authorEn = trim((string) ($_POST['author_en'] ?? ''));
                 $descBn = trim((string) ($_POST['description_bn'] ?? ''));
                 $descEn = trim((string) ($_POST['description_en'] ?? ''));
+                $seoTitleBn = mb_substr(trim((string) ($_POST['seo_title_bn'] ?? '')), 0, 220) ?: null;
+                $seoTitleEn = mb_substr(trim((string) ($_POST['seo_title_en'] ?? '')), 0, 220) ?: null;
+                $seoDescBn  = mb_substr(trim((string) ($_POST['seo_description_bn'] ?? '')), 0, 320) ?: null;
+                $seoDescEn  = mb_substr(trim((string) ($_POST['seo_description_en'] ?? '')), 0, 320) ?: null;
                 $driveInput = trim((string) ($_POST['drive_link'] ?? ''));
                 $sampleDriveInput = trim((string) ($_POST['sample_drive_link'] ?? ''));
                 $isFree = isset($_POST['is_free']) ? 1 : 0;
@@ -1179,24 +1229,30 @@ function handle_admin_routes(string $route): never
                 if ($id === null) {
                     $cover = $uploadedCover ?: 'uploads/covers/cover-bangla.svg';
                     db_exec(
-                        'INSERT INTO items (folder_id, slug, title_bn, title_en, author_bn, author_en, description_bn, description_en, cover, drive_link, sample_drive_link, price, original_price, is_free, sample_pages, total_pages, is_featured, is_active, publish_at, unpublish_at)
-                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                        [$folderId, $slug, $titleBn, $titleEn, $authorBn, $authorEn, $descBn, $descEn, $cover, $validDrive, $validSampleDrive, $price, $origPrice, $isFree, $samplePages, $totalPages, $isFeatured, $isActive, $publishAt, $unpublishAt]
+                        'INSERT INTO items (folder_id, slug, title_bn, title_en, author_bn, author_en, description_bn, description_en, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, cover, drive_link, sample_drive_link, price, original_price, is_free, sample_pages, total_pages, is_featured, is_active, publish_at, unpublish_at)
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+                        [$folderId, $slug, $titleBn, $titleEn, $authorBn, $authorEn, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $cover, $validDrive, $validSampleDrive, $price, $origPrice, $isFree, $samplePages, $totalPages, $isFeatured, $isActive, $publishAt, $unpublishAt]
                     );
                     $newId = (int) db()->lastInsertId();
+                    prune_self_slug_history('item', $slug);
                     if ($isActive === 1 && $folderId !== null) {
                         notify_folder_visitors_new_pdf((int) $folderId, $slug, $titleBn, $titleEn);
                     }
                     log_admin_action($admin, 'pdf_create', 'item', $newId, $titleEn);
                     flash('success', admin_bi('PDF যুক্ত হয়েছে (Drive লিংক সুরক্ষিতভাবে সংরক্ষিত)।', 'PDF item added (Drive link securely stored).'));
                 } else {
-                    $existing = db_one('SELECT cover FROM items WHERE id = ?', [$id]);
+                    $existing = db_one('SELECT slug, cover FROM items WHERE id = ?', [$id]);
+                    $oldSlug = (string) ($existing['slug'] ?? '');
                     $oldCover = $existing['cover'] ?? null;
                     $cover = $uploadedCover ?: ($oldCover ?: 'uploads/covers/cover-bangla.svg');
                     db_exec(
-                        'UPDATE items SET folder_id=?, slug=?, title_bn=?, title_en=?, author_bn=?, author_en=?, description_bn=?, description_en=?, cover=?, drive_link=?, sample_drive_link=?, price=?, original_price=?, is_free=?, sample_pages=?, total_pages=?, is_featured=?, is_active=?, publish_at=?, unpublish_at=? WHERE id=?',
-                        [$folderId, $slug, $titleBn, $titleEn, $authorBn, $authorEn, $descBn, $descEn, $cover, $validDrive, $validSampleDrive, $price, $origPrice, $isFree, $samplePages, $totalPages, $isFeatured, $isActive, $publishAt, $unpublishAt, $id]
+                        'UPDATE items SET folder_id=?, slug=?, title_bn=?, title_en=?, author_bn=?, author_en=?, description_bn=?, description_en=?, seo_title_bn=?, seo_title_en=?, seo_description_bn=?, seo_description_en=?, cover=?, drive_link=?, sample_drive_link=?, price=?, original_price=?, is_free=?, sample_pages=?, total_pages=?, is_featured=?, is_active=?, publish_at=?, unpublish_at=? WHERE id=?',
+                        [$folderId, $slug, $titleBn, $titleEn, $authorBn, $authorEn, $descBn, $descEn, $seoTitleBn, $seoTitleEn, $seoDescBn, $seoDescEn, $cover, $validDrive, $validSampleDrive, $price, $origPrice, $isFree, $samplePages, $totalPages, $isFeatured, $isActive, $publishAt, $unpublishAt, $id]
                     );
+                    if ($oldSlug !== '' && $oldSlug !== $slug) {
+                        record_slug_history('item', $id, $oldSlug);
+                    }
+                    prune_self_slug_history('item', $slug);
                     if ($uploadedCover && $oldCover && $oldCover !== $cover) {
                         media_try_delete_unused_image((string) $oldCover);
                     }

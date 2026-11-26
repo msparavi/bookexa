@@ -136,6 +136,27 @@ try {
                     </a>
                 <?php endif; ?>
             </div>
+
+            <?php
+            $shareAbsUrl = absolute_url_for_lang('/book/' . rawurlencode($item['slug']), $lang);
+            $shareTitle  = bi($item, 'title');
+            $waShareUrl  = 'https://wa.me/?text=' . rawurlencode($shareTitle . ' — ' . $shareAbsUrl);
+            $fbShareUrl  = 'https://www.facebook.com/sharer/sharer.php?u=' . rawurlencode($shareAbsUrl);
+            ?>
+            <div class="bx-share-bar" aria-label="<?= e($lang === 'bn' ? 'শেয়ার করুন' : 'Share this book') ?>">
+                <span class="bx-share-label"><?= $lang === 'bn' ? 'শেয়ার করুন:' : 'Share:' ?></span>
+                <a href="<?= e($waShareUrl) ?>" target="_blank" rel="noopener noreferrer" class="bx-btn bx-btn-ghost bx-btn-sm">
+                    WhatsApp
+                </a>
+                <a href="<?= e($fbShareUrl) ?>" target="_blank" rel="noopener noreferrer" class="bx-btn bx-btn-ghost bx-btn-sm">
+                    Facebook
+                </a>
+                <button type="button" class="bx-btn bx-btn-ghost bx-btn-sm"
+                        data-copy-link="<?= e($shareAbsUrl) ?>"
+                        data-copied-label="<?= e($lang === 'bn' ? 'লিংক কপি হয়েছে!' : 'Link copied!') ?>">
+                    <?= $lang === 'bn' ? 'লিংক কপি' : 'Copy Link' ?>
+                </button>
+            </div>
         </div>
     </div>
 

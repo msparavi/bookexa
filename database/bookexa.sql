@@ -87,6 +87,10 @@ CREATE TABLE IF NOT EXISTS `folders` (
     `name_en` VARCHAR(180) NOT NULL,
     `description_bn` TEXT DEFAULT NULL,
     `description_en` TEXT DEFAULT NULL,
+    `seo_title_bn` VARCHAR(220) DEFAULT NULL,
+    `seo_title_en` VARCHAR(220) DEFAULT NULL,
+    `seo_description_bn` VARCHAR(320) DEFAULT NULL,
+    `seo_description_en` VARCHAR(320) DEFAULT NULL,
     `thumbnail` VARCHAR(255) DEFAULT NULL,
     `accent_color` VARCHAR(20) DEFAULT '#0F3D3E',
     `sort_order` INT NOT NULL DEFAULT 0,
@@ -116,6 +120,10 @@ CREATE TABLE IF NOT EXISTS `items` (
     `author_en` VARCHAR(150) DEFAULT NULL,
     `description_bn` TEXT DEFAULT NULL,
     `description_en` TEXT DEFAULT NULL,
+    `seo_title_bn` VARCHAR(220) DEFAULT NULL,
+    `seo_title_en` VARCHAR(220) DEFAULT NULL,
+    `seo_description_bn` VARCHAR(320) DEFAULT NULL,
+    `seo_description_en` VARCHAR(320) DEFAULT NULL,
     `cover` VARCHAR(255) DEFAULT NULL,
     `drive_link` TEXT DEFAULT NULL,
     `sample_drive_link` TEXT DEFAULT NULL,
@@ -521,6 +529,17 @@ CREATE TABLE IF NOT EXISTS `otp_verifications` (
     PRIMARY KEY (`id`),
     KEY `idx_otp_lookup` (`purpose`, `target`, `expires_at`),
     CONSTRAINT `fk_otp_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS `slug_history` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `entity_type` ENUM('folder', 'item') NOT NULL,
+    `entity_id` INT UNSIGNED NOT NULL,
+    `old_path` VARCHAR(255) NOT NULL,
+    `created_at` TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uniq_sh_type_path` (`entity_type`, `old_path`),
+    KEY `idx_sh_entity` (`entity_type`, `entity_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================================================

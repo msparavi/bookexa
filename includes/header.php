@@ -4,10 +4,17 @@ declare(strict_types=1);
 $user = current_user();
 $lang = current_lang();
 $nextLang = $lang === 'bn' ? 'en' : 'bn';
-$reqPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+$logicalRouteHdr = defined('BX_LOGICAL_ROUTE') ? BX_LOGICAL_ROUTE : '/';
 $qParams = $_GET;
-$qParams['lang'] = $nextLang;
-$langUrl = $reqPath . '?' . http_build_query($qParams);
+unset($qParams['lang']);
+$qStrHdr = $qParams ? ('?' . http_build_query($qParams)) : '';
+if (function_exists('is_bilingual_public_route') && is_bilingual_public_route($logicalRouteHdr)) {
+    $langUrl = url_for_lang($logicalRouteHdr . $qStrHdr, $nextLang);
+} else {
+    $qParams['lang'] = $nextLang;
+    $reqPath = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+    $langUrl = $reqPath . '?' . http_build_query($qParams);
+}
 
 $siteName = site_setting('site_name', t('site_name'));
 $siteLogo = site_setting('site_logo', 'assets/img/logo.svg');
@@ -15,7 +22,11 @@ $activeNav = $activeNav ?? '';
 $shopEnabled = site_setting('shop_enabled', '0') === '1';
 $fullTitle = ($pageTitle ?? '') !== '' ? ($pageTitle . ' — ' . $siteName) : ($siteName . ' — ' . t('tagline'));
 $metaDesc = ($metaDescription ?? '') !== '' ? $metaDescription : t('meta_default_desc');
-$canonicalUrl = BASE_URL . ($canonicalPath ?? '/');
+$canonPath = $canonicalPath ?? $logicalRouteHdr;
+$isBilingualCanon = function_exists('is_bilingual_public_route') && is_bilingual_public_route($canonPath);
+$canonicalUrl = ($isBilingualCanon && $lang === 'en') ? absolute_url_for_lang($canonPath, 'en') : absolute_url_for_lang($canonPath, 'bn');
+$altBnUrl = $isBilingualCanon ? absolute_url_for_lang($canonPath, 'bn') : null;
+$altEnUrl = $isBilingualCanon ? absolute_url_for_lang($canonPath, 'en') : null;
 $flashes = get_flashes();
 $unreadNotifCount = $user ? unread_notifications_count((int) $user['id']) : 0;
 $recentNotifs = $user
@@ -35,11 +46,20 @@ $recentNotifs = $user
     <title><?= e($fullTitle) ?></title>
     <meta name="description" content="<?= e($metaDesc) ?>">
     <meta name="theme-color" content="#2B2F77">
+    <?php if (!empty($robotsNoIndex)): ?>
+        <meta name="robots" content="noindex, nofollow">
+    <?php endif; ?>
     <link rel="canonical" href="<?= e($canonicalUrl) ?>">
-    <?php $ogImg = !empty($ogImage) ? $ogImage : (BASE_URL . '/assets/img/apple-touch-icon.png'); ?>
+    <?php if (empty($robotsNoIndex) && $altBnUrl && $altEnUrl): ?>
+        <link rel="alternate" hreflang="bn" href="<?= e($altBnUrl) ?>">
+        <link rel="alternate" hreflang="en" href="<?= e($altEnUrl) ?>">
+        <link rel="alternate" hreflang="x-default" href="<?= e($altBnUrl) ?>">
+    <?php endif; ?>
+    <?php $ogImg = !empty($ogImage) ? $ogImage : absolute_asset_url('assets/img/apple-touch-icon.png'); ?>
     <meta property="og:title" content="<?= e($fullTitle) ?>">
     <meta property="og:description" content="<?= e($metaDesc) ?>">
-    <meta property="og:type" content="website">
+    <meta property="og:type" content="<?= e($ogType ?? 'website') ?>">
+    <meta property="og:locale" content="<?= $lang === 'en' ? 'en_US' : 'bn_BD' ?>">
     <meta property="og:url" content="<?= e($canonicalUrl) ?>">
     <meta property="og:image" content="<?= e($ogImg) ?>">
     <meta name="twitter:card" content="summary_large_image">
@@ -50,10 +70,20 @@ $recentNotifs = $user
     <link rel="icon" type="image/svg+xml" href="<?= e(asset('assets/img/favicon.svg')) ?>">
     <link rel="icon" type="image/png" sizes="32x32" href="<?= e(asset('assets/img/favicon-32x32.png')) ?>">
     <link rel="apple-touch-icon" sizes="180x180" href="<?= e(asset('assets/img/apple-touch-icon.png')) ?>">
+    <link rel="preload" as="font" type="font/woff2" href="<?= e(asset('assets/fonts/font-1.woff2')) ?>" crossorigin>
+    <link rel="preload" as="font" type="font/woff2" href="<?= e(asset('assets/fonts/font-3.woff2')) ?>" crossorigin>
+    <?php if (!empty($preloadHeroImage)): ?>
+        <link rel="preload" as="image" href="<?= e($preloadHeroImage) ?>" fetchpriority="high">
+    <?php endif; ?>
     <link rel="stylesheet" href="<?= e(asset('assets/css/fonts.css')) ?>">
     <link rel="stylesheet" href="<?= e(asset('assets/css/tokens.css')) ?>">
     <link rel="stylesheet" href="<?= e(asset('assets/css/components.css')) ?>">
     <link rel="stylesheet" href="<?= e(asset('assets/css/motion.css')) ?>">
+    <?php if (!empty($jsonLdSchemas) && is_array($jsonLdSchemas)): ?>
+        <?php foreach ($jsonLdSchemas as $schema): ?>
+            <script type="application/ld+json"><?= json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?></script>
+        <?php endforeach; ?>
+    <?php endif; ?>
     <script src="<?= e(asset('assets/js/theme-init.js')) ?>"></script>
 </head>
 <body>
@@ -75,7 +105,7 @@ $recentNotifs = $user
                 <?php if ($siteLogo === 'assets/img/logo.svg' || $siteLogo === ''): ?>
                     <?= bookexa_logo_svg() ?>
                 <?php else: ?>
-                    <img src="<?= e(asset($siteLogo)) ?>" alt="<?= e($siteName) ?>" style="height:36px;width:auto;">
+                    <img src="<?= e(asset($siteLogo)) ?>" alt="<?= e($siteName) ?>" width="36" height="36" style="height:36px;width:auto;">
                     <span><?= e($siteName) ?></span>
                 <?php endif; ?>
             </a>
@@ -161,7 +191,7 @@ $recentNotifs = $user
                 <?php if ($siteLogo === 'assets/img/logo.svg' || $siteLogo === ''): ?>
                     <?= bookexa_logo_svg('bx-logo-svg') ?>
                 <?php else: ?>
-                    <img src="<?= e(asset($siteLogo)) ?>" alt="<?= e($siteName) ?>" style="height:32px;width:auto;">
+                    <img src="<?= e(asset($siteLogo)) ?>" alt="<?= e($siteName) ?>" width="32" height="32" style="height:32px;width:auto;">
                     <span><?= e($siteName) ?></span>
                 <?php endif; ?>
             </span>

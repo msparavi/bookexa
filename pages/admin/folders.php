@@ -214,6 +214,28 @@ $renderTree = function (int $parentId, int $depth = 0) use (&$renderTree, $byPar
                     </div>
                 </div>
 
+                <details style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-alt);">
+                    <summary style="cursor:pointer;font-weight:700;font-size:0.9rem;"><?= $lang === 'bn' ? 'SEO মেটাডাটা (ঐচ্ছিক — স্বয়ংক্রিয় ফলব্যাক আছে)' : 'SEO Metadata (Optional — auto-fallback if blank)' ?></summary>
+                    <div class="bx-grid-2" style="gap:10px;margin-top:10px;">
+                        <div>
+                            <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">SEO Title (Bangla)</label>
+                            <input type="text" name="seo_title_bn" class="bx-input" maxlength="220" value="<?= e((string) ($editFolder['seo_title_bn'] ?? '')) ?>" placeholder="<?= $lang === 'bn' ? 'খালি রাখলে নাম ব্যবহার হবে' : 'Auto from Bangla name' ?>">
+                        </div>
+                        <div>
+                            <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">SEO Title (English)</label>
+                            <input type="text" name="seo_title_en" class="bx-input" maxlength="220" value="<?= e((string) ($editFolder['seo_title_en'] ?? '')) ?>" placeholder="Auto from English name">
+                        </div>
+                        <div>
+                            <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">SEO Description (Bangla)</label>
+                            <textarea name="seo_description_bn" class="bx-input" rows="2" maxlength="320"><?= e((string) ($editFolder['seo_description_bn'] ?? '')) ?></textarea>
+                        </div>
+                        <div>
+                            <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">SEO Description (English)</label>
+                            <textarea name="seo_description_en" class="bx-input" rows="2" maxlength="320"><?= e((string) ($editFolder['seo_description_en'] ?? '')) ?></textarea>
+                        </div>
+                    </div>
+                </details>
+
                 <div style="margin-bottom:14px;">
                     <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'থাম্বনেইল ছবি (ক্যামেরা/গ্যালারি)' : 'Thumbnail Image (Camera / Gallery)' ?></label>
                     <input type="file" name="thumbnail" accept="image/jpeg,image/png,image/webp" class="bx-input" data-preview-target="folder-thumb-preview" data-crop-hidden="folder-cropped-data">

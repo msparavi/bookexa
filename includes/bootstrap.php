@@ -75,6 +75,19 @@ if ($cfgBaseUrl !== '') {
 }
 define('BASE_URL', $baseUrl);
 
+$reqPathRaw = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+if ($basePath !== '' && str_starts_with($reqPathRaw, $basePath)) {
+    $reqPathRaw = substr($reqPathRaw, strlen($basePath));
+}
+$normPathRaw = '/' . trim($reqPathRaw, '/');
+$isEnPrefixed = ($normPathRaw === '/en' || str_starts_with($normPathRaw, '/en/'));
+$logicalRoute = $isEnPrefixed ? ('/' . ltrim(substr($normPathRaw, 3), '/')) : $normPathRaw;
+if ($logicalRoute === '' || $logicalRoute === '//') {
+    $logicalRoute = '/';
+}
+define('BX_URL_HAS_EN', $isEnPrefixed);
+define('BX_LOGICAL_ROUTE', $logicalRoute);
+
 // Secure session settings
 if (session_status() === PHP_SESSION_NONE) {
     session_set_cookie_params([

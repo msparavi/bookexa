@@ -61,7 +61,7 @@ $shopItems = [
             <div class="bx-book-3d bx-reveal">
                 <article class="bx-book-card">
                     <a href="<?= e($detailUrl) ?>" class="bx-book-cover">
-                        <img src="<?= e(asset($p['cover'])) ?>" alt="<?= e(bi($p, 'title')) ?>" loading="lazy">
+                        <img src="<?= e(asset($p['cover'])) ?>" alt="<?= e(bi($p, 'title')) ?>" width="400" height="600" loading="lazy" decoding="async">
                         <span class="bx-book-ribbon"><?= e(bi($p, 'cat')) ?></span>
                     </a>
                     <div class="bx-book-info">

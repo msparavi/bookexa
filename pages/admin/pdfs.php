@@ -375,6 +375,28 @@ $filterQueryPrefix = http_build_query(array_filter([
                 </div>
             </div>
 
+            <details style="margin-bottom:14px;padding:12px;border:1px solid var(--border);border-radius:10px;background:var(--bg-alt);">
+                <summary style="cursor:pointer;font-weight:700;font-size:0.9rem;"><?= $lang === 'bn' ? 'SEO মেটাডাটা (ঐচ্ছিক — স্বয়ংক্রিয় ফলব্যাক আছে)' : 'SEO Metadata (Optional — auto-fallback if blank)' ?></summary>
+                <div class="bx-grid-2" style="gap:10px;margin-top:10px;">
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">SEO Title (Bangla)</label>
+                        <input type="text" name="seo_title_bn" class="bx-input" maxlength="220" value="<?= e((string) ($editPdf['seo_title_bn'] ?? '')) ?>" placeholder="Auto from Bangla title">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">SEO Title (English)</label>
+                        <input type="text" name="seo_title_en" class="bx-input" maxlength="220" value="<?= e((string) ($editPdf['seo_title_en'] ?? '')) ?>" placeholder="Auto from English title">
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">SEO Description (Bangla)</label>
+                        <textarea name="seo_description_bn" class="bx-input" rows="2" maxlength="320"><?= e((string) ($editPdf['seo_description_bn'] ?? '')) ?></textarea>
+                    </div>
+                    <div>
+                        <label style="display:block;font-weight:600;margin-bottom:4px;font-size:0.84rem;">SEO Description (English)</label>
+                        <textarea name="seo_description_en" class="bx-input" rows="2" maxlength="320"><?= e((string) ($editPdf['seo_description_en'] ?? '')) ?></textarea>
+                    </div>
+                </div>
+            </details>
+
             <div class="bx-grid-2" style="gap:12px;margin-bottom:14px;">
                 <div>
                     <label style="display:block;font-weight:600;margin-bottom:4px;"><?= $lang === 'bn' ? 'কভার ছবি (ক্যামেরা/গ্যালারি)' : 'Cover Image (Camera / Gallery)' ?></label>

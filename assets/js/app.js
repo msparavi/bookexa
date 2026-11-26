@@ -604,6 +604,31 @@
         } catch (e) {}
     }
 
+    // Share link copy button (Book detail page)
+    document.addEventListener('click', async (e) => {
+        const btn = e.target.closest('[data-copy-link]');
+        if (!btn) return;
+        const url = btn.getAttribute('data-copy-link') || window.location.href;
+        const msg = btn.getAttribute('data-copied-label') || 'Link copied!';
+        try {
+            if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+                await navigator.clipboard.writeText(url);
+            } else {
+                const ta = document.createElement('textarea');
+                ta.value = url;
+                ta.setAttribute('readonly', '');
+                ta.style.cssText = 'position:fixed;left:-9999px;';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                ta.remove();
+            }
+            if (window.bxToast) window.bxToast(msg);
+        } catch (err) {
+            if (window.bxToast) window.bxToast(url);
+        }
+    });
+
     // Mobile Soft Keyboard Focus Visibility (ensures sticky bottom bar / keyboard never hides active field)
     document.addEventListener('focusin', (e) => {
         if (window.innerWidth > 900) return;

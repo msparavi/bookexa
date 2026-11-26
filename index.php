@@ -18,9 +18,13 @@ $rawUri = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 if (BASE_PATH !== '' && str_starts_with($rawUri, BASE_PATH)) {
     $rawUri = substr($rawUri, strlen(BASE_PATH));
 }
-$route = '/' . trim($rawUri, '/');
-if ($route === '') {
-    $route = '/';
+$literalRoute = '/' . trim($rawUri, '/');
+if ($literalRoute === '') {
+    $literalRoute = '/';
+}
+$route = defined('BX_LOGICAL_ROUTE') ? BX_LOGICAL_ROUTE : $literalRoute;
+if (defined('BX_URL_HAS_EN') && BX_URL_HAS_EN && !is_bilingual_public_route($route)) {
+    $route = $literalRoute;
 }
 
 if ($route === '/install') {
@@ -29,6 +33,9 @@ if ($route === '/install') {
 
 function render_public(string $viewFile, array $vars = []): never
 {
+    if (!empty($vars['robotsNoIndex'])) {
+        header('X-Robots-Tag: noindex, nofollow');
+    }
     extract($vars, EXTR_SKIP);
     require APP_ROOT . '/includes/header.php';
     require APP_ROOT . '/pages/' . $viewFile;
@@ -302,11 +309,12 @@ if ($route === '/api/payment-sandbox') {
 }
 
 // ----------------------------------------------------------------------------
-// SEO Sitemap.xml (1-hour file cache + ETag / Last-Modified)
+// SEO Sitemap Index & Bilingual Child Sitemaps (1-hour file cache + ETag)
 // ----------------------------------------------------------------------------
-if ($route === '/sitemap.xml') {
+function serve_cached_sitemap_xml(string $cacheName, callable $builder): never
+{
     $cacheDir = ensure_bookexa_cache_dir();
-    $smFile = $cacheDir . '/sitemap.xml';
+    $smFile = $cacheDir . '/' . $cacheName;
     $smTtl = 3600;
     $xml = null;
 
@@ -319,42 +327,8 @@ if ($route === '/sitemap.xml') {
             }
         }
     }
-
     if ($xml === null) {
-        $today = date('Y-m-d');
-        $urlMap = [
-            BASE_URL . '/'              => $today,
-            BASE_URL . '/pdf'           => $today,
-            BASE_URL . '/about'         => $today,
-            BASE_URL . '/contact'       => $today,
-            BASE_URL . '/terms'         => $today,
-            BASE_URL . '/privacy'       => $today,
-            BASE_URL . '/refund-policy' => $today,
-            BASE_URL . '/copyright'     => $today,
-        ];
-        if (site_setting('shop_enabled', '0') === '1') {
-            $urlMap[BASE_URL . '/shop'] = $today;
-        }
-        $tree = get_cached_folder_tree();
-        foreach ($tree['byId'] ?? [] as $f) {
-            $trail = folder_breadcrumbs((int) $f['id']);
-            if (!empty($trail)) {
-                $u = BASE_URL . '/pdf/' . implode('/', array_map(fn($c) => rawurlencode($c['slug']), $trail));
-                $ts = strtotime((string) ($f['updated_at'] ?? $f['created_at'] ?? 'now')) ?: time();
-                $urlMap[$u] = date('Y-m-d', $ts);
-            }
-        }
-        foreach (db_all('SELECT slug, updated_at, created_at FROM items WHERE is_active = 1 AND ' . published_window_sql()) as $it) {
-            $u = BASE_URL . '/book/' . rawurlencode($it['slug']);
-            $ts = strtotime((string) ($it['updated_at'] ?? $it['created_at'] ?? 'now')) ?: time();
-            $urlMap[$u] = date('Y-m-d', $ts);
-        }
-        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
-            . '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
-        foreach ($urlMap as $u => $lastmod) {
-            $xml .= '  <url><loc>' . htmlspecialchars($u, ENT_XML1, 'UTF-8') . '</loc><lastmod>' . e($lastmod) . "</lastmod></url>\n";
-        }
-        $xml .= '</urlset>';
+        $xml = (string) $builder();
         $tmp = $smFile . '.' . bin2hex(random_bytes(6)) . '.tmp';
         if (@file_put_contents($tmp, $xml, LOCK_EX) !== false) {
             if (!@rename($tmp, $smFile)) {
@@ -378,6 +352,91 @@ if ($route === '/sitemap.xml') {
     }
     echo $xml;
     exit;
+}
+
+function build_bilingual_urlset_xml(array $entries): string
+{
+    $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+        . '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">' . "\n";
+    foreach ($entries as $entry) {
+        $path    = (string) $entry['path'];
+        $lastmod = (string) $entry['lastmod'];
+        $bnUrl   = absolute_url_for_lang($path, 'bn');
+        $enUrl   = absolute_url_for_lang($path, 'en');
+        foreach ([$bnUrl, $enUrl] as $loc) {
+            $xml .= "  <url>\n"
+                . '    <loc>' . htmlspecialchars($loc, ENT_XML1, 'UTF-8') . "</loc>\n"
+                . '    <lastmod>' . e($lastmod) . "</lastmod>\n"
+                . '    <xhtml:link rel="alternate" hreflang="bn" href="' . htmlspecialchars($bnUrl, ENT_XML1, 'UTF-8') . "\"/>\n"
+                . '    <xhtml:link rel="alternate" hreflang="en" href="' . htmlspecialchars($enUrl, ENT_XML1, 'UTF-8') . "\"/>\n"
+                . '    <xhtml:link rel="alternate" hreflang="x-default" href="' . htmlspecialchars($bnUrl, ENT_XML1, 'UTF-8') . "\"/>\n"
+                . "  </url>\n";
+        }
+    }
+    $xml .= '</urlset>';
+    return $xml;
+}
+
+if ($route === '/sitemap.xml') {
+    serve_cached_sitemap_xml('sitemap.xml', static function (): string {
+        $pub = published_window_sql();
+        $fModRow = db_one("SELECT MAX(COALESCE(updated_at, created_at)) AS m FROM folders WHERE is_active = 1 AND {$pub}");
+        $iModRow = db_one("SELECT MAX(COALESCE(updated_at, created_at)) AS m FROM items WHERE is_active = 1 AND {$pub}");
+        $fMod = !empty($fModRow['m']) ? date('Y-m-d', strtotime((string) $fModRow['m']) ?: time()) : date('Y-m-d');
+        $iMod = !empty($iModRow['m']) ? date('Y-m-d', strtotime((string) $iModRow['m']) ?: time()) : date('Y-m-d');
+        $sMod = date('Y-m-d');
+
+        $subs = [
+            ['loc' => BASE_URL . '/sitemap-static.xml',  'lastmod' => $sMod],
+            ['loc' => BASE_URL . '/sitemap-folders.xml', 'lastmod' => $fMod],
+            ['loc' => BASE_URL . '/sitemap-books.xml',   'lastmod' => $iMod],
+        ];
+        $xml = '<?xml version="1.0" encoding="UTF-8"?>' . "\n"
+            . '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' . "\n";
+        foreach ($subs as $s) {
+            $xml .= '  <sitemap><loc>' . htmlspecialchars($s['loc'], ENT_XML1, 'UTF-8') . '</loc><lastmod>' . e($s['lastmod']) . "</lastmod></sitemap>\n";
+        }
+        $xml .= '</sitemapindex>';
+        return $xml;
+    });
+}
+
+if ($route === '/sitemap-static.xml') {
+    serve_cached_sitemap_xml('sitemap-static.xml', static function (): string {
+        $today = date('Y-m-d');
+        $paths = ['/', '/pdf', '/about', '/contact', '/terms', '/privacy', '/refund-policy', '/copyright'];
+        if (site_setting('shop_enabled', '0') === '1') {
+            $paths[] = '/shop';
+        }
+        $entries = array_map(static fn(string $p): array => ['path' => $p, 'lastmod' => $today], $paths);
+        return build_bilingual_urlset_xml($entries);
+    });
+}
+
+if ($route === '/sitemap-folders.xml') {
+    serve_cached_sitemap_xml('sitemap-folders.xml', static function (): string {
+        $tree = get_cached_folder_tree();
+        $entries = [];
+        foreach ($tree['byId'] ?? [] as $f) {
+            $trail = folder_breadcrumbs((int) $f['id']);
+            if (!$trail) continue;
+            $path = '/pdf/' . implode('/', array_map(static fn($c): string => rawurlencode((string) $c['slug']), $trail));
+            $ts = strtotime((string) ($f['updated_at'] ?? $f['created_at'] ?? 'now')) ?: time();
+            $entries[] = ['path' => $path, 'lastmod' => date('Y-m-d', $ts)];
+        }
+        return build_bilingual_urlset_xml($entries);
+    });
+}
+
+if ($route === '/sitemap-books.xml') {
+    serve_cached_sitemap_xml('sitemap-books.xml', static function (): string {
+        $entries = [];
+        foreach (db_all('SELECT slug, updated_at, created_at FROM items WHERE is_active = 1 AND ' . published_window_sql() . ' ORDER BY id DESC') as $it) {
+            $ts = strtotime((string) ($it['updated_at'] ?? $it['created_at'] ?? 'now')) ?: time();
+            $entries[] = ['path' => '/book/' . rawurlencode((string) $it['slug']), 'lastmod' => date('Y-m-d', $ts)];
+        }
+        return build_bilingual_urlset_xml($entries);
+    });
 }
 
 // ----------------------------------------------------------------------------
@@ -527,8 +586,9 @@ if ($route === '/login') {
         'devices'   => $devices,
         'otpPhone'  => $otpPhone,
         'otpStep'   => $otpStep,
-        'pageTitle' => t('nav_login'),
-        'activeNav' => 'account',
+        'pageTitle'     => t('nav_login'),
+        'activeNav'     => 'account',
+        'robotsNoIndex' => true,
     ]);
 }
 
@@ -551,7 +611,7 @@ if ($route === '/register') {
         }
         $error = $res['error'];
     }
-    render_public('auth.php', ['authMode' => 'register', 'error' => $error, 'pageTitle' => 'Register', 'activeNav' => 'account']);
+    render_public('auth.php', ['authMode' => 'register', 'error' => $error, 'pageTitle' => 'Register', 'activeNav' => 'account', 'robotsNoIndex' => true]);
 }
 
 if ($route === '/logout' && $_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -591,7 +651,7 @@ if ($route === '/forgot-password') {
             $info = current_lang() === 'bn' ? 'যদি অ্যাকাউন্ট থেকে থাকে তবে রিসেট নির্দেশনা পাঠানো হয়েছে।' : 'If an account matches, reset instructions have been sent.';
         }
     }
-    render_public('auth.php', ['authMode' => 'forgot', 'error' => $error, 'info' => $info, 'pageTitle' => 'Reset Password', 'activeNav' => 'account']);
+    render_public('auth.php', ['authMode' => 'forgot', 'error' => $error, 'info' => $info, 'pageTitle' => 'Reset Password', 'activeNav' => 'account', 'robotsNoIndex' => true]);
 }
 
 if ($route === '/reset-password') {
@@ -603,7 +663,7 @@ if ($route === '/reset-password') {
 
     if (!$row || strtotime($row['expires_at']) < time()) {
         $error = current_lang() === 'bn' ? 'রিসেট লিংকটি অবৈধ অথবা মেয়াদ শেষ হয়েছে।' : 'This reset link is invalid or expired.';
-        render_public('auth.php', ['authMode' => 'forgot', 'error' => $error, 'info' => null, 'pageTitle' => 'Reset Password']);
+        render_public('auth.php', ['authMode' => 'forgot', 'error' => $error, 'info' => null, 'pageTitle' => 'Reset Password', 'robotsNoIndex' => true]);
     }
 
     if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -619,7 +679,7 @@ if ($route === '/reset-password') {
             redirect('/login');
         }
     }
-    render_public('auth.php', ['authMode' => 'reset', 'error' => $error, 'resetToken' => $token, 'pageTitle' => 'Set New Password', 'activeNav' => 'account']);
+    render_public('auth.php', ['authMode' => 'reset', 'error' => $error, 'resetToken' => $token, 'pageTitle' => 'Set New Password', 'activeNav' => 'account', 'robotsNoIndex' => true]);
 }
 
 // ----------------------------------------------------------------------------
@@ -807,6 +867,7 @@ if ($route === '/profile') {
         'pendingContact'   => $_SESSION['pending_contact_change'] ?? null,
         'pageTitle'        => 'Profile',
         'activeNav'        => 'account',
+        'robotsNoIndex'    => true,
     ]);
 }
 
@@ -818,15 +879,16 @@ if ($route === '/library') {
     $res = browse_query_items(['mode' => 'library', 'user_id' => $uid], $filters);
     $readingStats = user_reading_stats($uid);
     render_public('library.php', [
-        'user'         => $user,
-        'libraryItems' => $res['items'],
-        'filters'      => $filters,
-        'page'         => $res['page'],
-        'totalPages'   => $res['totalPages'],
-        'totalItems'   => $res['total'],
-        'readingStats' => $readingStats,
-        'pageTitle'    => t('nav_library'),
-        'activeNav'    => 'library',
+        'user'          => $user,
+        'libraryItems'  => $res['items'],
+        'filters'       => $filters,
+        'page'          => $res['page'],
+        'totalPages'    => $res['totalPages'],
+        'totalItems'    => $res['total'],
+        'readingStats'  => $readingStats,
+        'pageTitle'     => t('nav_library'),
+        'activeNav'     => 'library',
+        'robotsNoIndex' => true,
     ]);
 }
 
@@ -959,7 +1021,7 @@ if ($route === '/orders') {
          WHERE o.user_id = ? ORDER BY o.id DESC',
         [$uid]
     );
-    render_public('orders.php', ['orders' => $orders, 'pageTitle' => 'My Orders', 'activeNav' => 'account']);
+    render_public('orders.php', ['orders' => $orders, 'pageTitle' => 'My Orders', 'activeNav' => 'account', 'robotsNoIndex' => true]);
 }
 
 if ($route === '/wishlist') {
@@ -974,6 +1036,7 @@ if ($route === '/wishlist') {
         'totalItems'    => $res['total'],
         'pageTitle'     => t('nav_wishlist'),
         'activeNav'     => 'wishlist',
+        'robotsNoIndex' => true,
     ]);
 }
 
@@ -998,7 +1061,7 @@ if ($route === '/notifications') {
         'SELECT * FROM notifications WHERE user_id = ? ORDER BY id DESC LIMIT 60',
         [$uid]
     );
-    render_public('notifications.php', ['notifications' => $notifications, 'pageTitle' => t('nav_notifications'), 'activeNav' => 'notifications']);
+    render_public('notifications.php', ['notifications' => $notifications, 'pageTitle' => t('nav_notifications'), 'activeNav' => 'notifications', 'robotsNoIndex' => true]);
 }
 
 // ----------------------------------------------------------------------------
@@ -1212,7 +1275,7 @@ if (preg_match('#^/checkout/([^/]+)$#', $route, $m)) {
         }
     }
 
-    render_public('checkout.php', ['item' => $item, 'error' => $error, 'appliedCoupon' => $appliedCoupon, 'pageTitle' => t('buy_now_btn'), 'activeNav' => 'pdfs']);
+    render_public('checkout.php', ['item' => $item, 'error' => $error, 'appliedCoupon' => $appliedCoupon, 'pageTitle' => t('buy_now_btn'), 'activeNav' => 'pdfs', 'robotsNoIndex' => true]);
 }
 
 // ----------------------------------------------------------------------------
@@ -1298,7 +1361,47 @@ if (preg_match('#^/reader/([^/]+)$#', $route, $m)) {
 // Public Storefront Pages
 // ----------------------------------------------------------------------------
 if ($route === '/') {
-    render_public('home.php', ['pageTitle' => '', 'metaDescription' => t('meta_default_desc'), 'canonicalPath' => '/', 'activeNav' => 'home']);
+    $homeLang = current_lang();
+    $siteName = site_setting('site_name', 'Bookexa');
+    $firstBanner = db_one(
+        'SELECT image FROM banners
+         WHERE is_active = 1
+           AND (COALESCE(publish_at, starts_at) IS NULL OR COALESCE(publish_at, starts_at) <= NOW())
+           AND (COALESCE(unpublish_at, ends_at) IS NULL OR COALESCE(unpublish_at, ends_at) > NOW())
+         ORDER BY sort_order ASC, id DESC LIMIT 1'
+    );
+    $heroImgAbs = !empty($firstBanner['image']) ? absolute_asset_url((string) $firstBanner['image']) : null;
+    $logoAbs = absolute_asset_url(site_setting('site_logo', 'assets/img/logo.svg'));
+    $homeSchemas = [
+        [
+            '@context' => 'https://schema.org',
+            '@type'    => 'Organization',
+            'name'     => $siteName,
+            'url'      => BASE_URL . '/',
+            'logo'     => $logoAbs,
+        ],
+        [
+            '@context'        => 'https://schema.org',
+            '@type'           => 'WebSite',
+            'name'            => $siteName,
+            'url'             => absolute_url_for_lang('/', $homeLang),
+            'inLanguage'      => $homeLang,
+            'potentialAction' => [
+                '@type'       => 'SearchAction',
+                'target'      => absolute_url_for_lang('/search', $homeLang) . '?q={search_term_string}',
+                'query-input' => 'required name=search_term_string',
+            ],
+        ],
+    ];
+    render_public('home.php', [
+        'pageTitle'        => '',
+        'metaDescription'  => t('meta_default_desc'),
+        'canonicalPath'    => '/',
+        'activeNav'        => 'home',
+        'ogImage'          => $heroImgAbs ?: absolute_asset_url('assets/img/apple-touch-icon.png'),
+        'preloadHeroImage' => $heroImgAbs,
+        'jsonLdSchemas'    => $homeSchemas,
+    ]);
 }
 
 if ($route === '/demo' || $route === '/styleguide') {
@@ -1349,9 +1452,31 @@ if ($route === '/pdf' || str_starts_with($route, '/pdf/')) {
         $slugPrefix = '';
         $title = t('browse_folders_title');
         $metaDesc = t('featured_folders_sub');
+        $ogImgFolder = null;
+        $folderSchemas = [
+            [
+                '@context'        => 'https://schema.org',
+                '@type'           => 'BreadcrumbList',
+                'itemListElement' => [
+                    ['@type' => 'ListItem', 'position' => 1, 'name' => t('nav_home'), 'item' => absolute_url_for_lang('/', current_lang())],
+                    ['@type' => 'ListItem', 'position' => 2, 'name' => t('nav_pdfs'), 'item' => absolute_url_for_lang('/pdf', current_lang())],
+                ],
+            ],
+        ];
     } else {
         $currentFolder = resolve_folder_by_slugs($segments);
         if (!$currentFolder) {
+            $oldPathKey = implode('/', $segments);
+            $hist = db_one("SELECT entity_id FROM slug_history WHERE entity_type = 'folder' AND old_path = ? LIMIT 1", [$oldPathKey]);
+            if ($hist) {
+                $targetFolder = db_one('SELECT id FROM folders WHERE id = ? AND is_active = 1 AND ' . published_window_sql() . ' LIMIT 1', [(int) $hist['entity_id']]);
+                if ($targetFolder) {
+                    $qStr = (string) ($_SERVER['QUERY_STRING'] ?? '');
+                    $redirUrl = folder_full_url((int) $targetFolder['id']) . ($qStr !== '' ? ('?' . $qStr) : '');
+                    header('Location: ' . $redirUrl, true, 301);
+                    exit;
+                }
+            }
             http_response_code(404);
             render_public('404.php', ['pageTitle' => '404', 'activeNav' => 'pdfs']);
         }
@@ -1389,8 +1514,33 @@ if ($route === '/pdf' || str_starts_with($route, '/pdf/')) {
         $totalItems = $itemRes['total'];
 
         $slugPrefix = implode('/', array_map('rawurlencode', $segments));
-        $title = bi($currentFolder, 'name');
-        $metaDesc = bi($currentFolder, 'description', t('featured_folders_sub'));
+        $seoT = bi($currentFolder, 'seo_title');
+        $seoD = bi($currentFolder, 'seo_description');
+        $title = $seoT !== '' ? $seoT : bi($currentFolder, 'name');
+        $metaDesc = $seoD !== '' ? $seoD : mb_substr(strip_tags(bi($currentFolder, 'description', t('featured_folders_sub'))), 0, 155);
+        $ogImgFolder = !empty($currentFolder['thumbnail']) ? absolute_asset_url((string) $currentFolder['thumbnail']) : null;
+
+        $fLang = current_lang();
+        $bcItems = [
+            ['@type' => 'ListItem', 'position' => 1, 'name' => t('nav_home'), 'item' => absolute_url_for_lang('/', $fLang)],
+            ['@type' => 'ListItem', 'position' => 2, 'name' => t('nav_pdfs'), 'item' => absolute_url_for_lang('/pdf', $fLang)],
+        ];
+        $acc = [];
+        $pos = 3;
+        foreach ($breadcrumbs as $bc) {
+            $acc[] = rawurlencode((string) $bc['slug']);
+            $bcItems[] = [
+                '@type'    => 'ListItem',
+                'position' => $pos++,
+                'name'     => bi($bc, 'name'),
+                'item'     => absolute_url_for_lang('/pdf/' . implode('/', $acc), $fLang),
+            ];
+        }
+        $folderSchemas = [[
+            '@context'        => 'https://schema.org',
+            '@type'           => 'BreadcrumbList',
+            'itemListElement' => $bcItems,
+        ]];
     }
 
     render_public('folder.php', [
@@ -1407,6 +1557,8 @@ if ($route === '/pdf' || str_starts_with($route, '/pdf/')) {
         'totalItems'      => $totalItems,
         'pageTitle'       => $title,
         'metaDescription' => $metaDesc,
+        'ogImage'         => $ogImgFolder ?: absolute_asset_url('assets/img/apple-touch-icon.png'),
+        'jsonLdSchemas'   => $folderSchemas,
         'canonicalPath'   => $route,
         'activeNav'       => 'pdfs',
     ]);
@@ -1455,19 +1607,94 @@ if (preg_match('#^/book/([^/]+)/review$#', $route, $m) && $_SERVER['REQUEST_METH
 if (preg_match('#^/book/([^/]+)$#', $route, $m)) {
     $slug = rawurldecode($m[1]);
     $item = db_one(
-        'SELECT id, folder_id, slug, title_bn, title_en, author_bn, author_en, description_bn, description_en, cover, price, original_price, is_free, sample_pages, total_pages
+        'SELECT id, folder_id, slug, title_bn, title_en, author_bn, author_en, description_bn, description_en, seo_title_bn, seo_title_en, seo_description_bn, seo_description_en, cover, price, original_price, is_free, sample_pages, total_pages
          FROM items WHERE slug = ? AND is_active = 1 AND ' . published_window_sql() . ' LIMIT 1',
         [$slug]
     );
     if (!$item) {
+        $hist = db_one("SELECT entity_id FROM slug_history WHERE entity_type = 'item' AND old_path = ? LIMIT 1", [$slug]);
+        if ($hist) {
+            $targetItem = db_one('SELECT slug FROM items WHERE id = ? AND is_active = 1 AND ' . published_window_sql() . ' LIMIT 1', [(int) $hist['entity_id']]);
+            if ($targetItem) {
+                header('Location: ' . url('/book/' . rawurlencode((string) $targetItem['slug'])), true, 301);
+                exit;
+            }
+        }
         render_error_page(404);
     }
-    $ogImg = !empty($item['cover']) ? (BASE_URL . '/' . ltrim((string) $item['cover'], '/')) : (BASE_URL . '/assets/img/apple-touch-icon.png');
+    $bLang = current_lang();
+    $ogImg = !empty($item['cover']) ? absolute_asset_url((string) $item['cover']) : absolute_asset_url('assets/img/apple-touch-icon.png');
+    $bookCanonicalAbs = absolute_url_for_lang('/book/' . rawurlencode((string) $item['slug']), $bLang);
+    $seoTitle = bi($item, 'seo_title');
+    $seoDesc  = bi($item, 'seo_description');
+    $bookTitle = bi($item, 'title');
+    $bookAuthor = bi($item, 'author');
+    $pageTitleVal = $seoTitle !== '' ? $seoTitle : ($bookTitle . ($bookAuthor !== '' ? (' — ' . $bookAuthor) : ''));
+    $rawDesc = mb_substr(strip_tags(bi($item, 'description')), 0, 155);
+    $metaDescVal = $seoDesc !== '' ? $seoDesc : ($rawDesc !== '' ? $rawDesc : t('meta_default_desc'));
+
+    $bcList = [
+        ['@type' => 'ListItem', 'position' => 1, 'name' => t('nav_home'), 'item' => absolute_url_for_lang('/', $bLang)],
+        ['@type' => 'ListItem', 'position' => 2, 'name' => t('nav_pdfs'), 'item' => absolute_url_for_lang('/pdf', $bLang)],
+    ];
+    $pos = 3;
+    if (!empty($item['folder_id'])) {
+        $acc = [];
+        foreach (folder_breadcrumbs((int) $item['folder_id']) as $bc) {
+            $acc[] = rawurlencode((string) $bc['slug']);
+            $bcList[] = [
+                '@type'    => 'ListItem',
+                'position' => $pos++,
+                'name'     => bi($bc, 'name'),
+                'item'     => absolute_url_for_lang('/pdf/' . implode('/', $acc), $bLang),
+            ];
+        }
+    }
+    $bcList[] = ['@type' => 'ListItem', 'position' => $pos, 'name' => $bookTitle, 'item' => $bookCanonicalAbs];
+
+    $bookSchema = [
+        '@context'   => 'https://schema.org',
+        '@type'      => 'Book',
+        'name'       => $bookTitle,
+        'url'        => $bookCanonicalAbs,
+        'image'      => $ogImg,
+        'bookFormat' => 'https://schema.org/EBook',
+        'inLanguage' => $bLang,
+        'offers'     => [
+            '@type'         => 'Offer',
+            'priceCurrency' => 'BDT',
+            'price'         => ((int) $item['is_free'] || (float) $item['price'] <= 0) ? '0' : number_format((float) $item['price'], 2, '.', ''),
+            'availability'  => 'https://schema.org/InStock',
+            'url'           => $bookCanonicalAbs,
+        ],
+    ];
+    if ($bookAuthor !== '') {
+        $bookSchema['author'] = ['@type' => 'Person', 'name' => $bookAuthor];
+    }
+    if (!empty($item['total_pages'])) {
+        $bookSchema['numberOfPages'] = (int) $item['total_pages'];
+    }
+    $rSum = item_rating_summary((int) $item['id']);
+    if (($rSum['count'] ?? 0) > 0) {
+        $bookSchema['aggregateRating'] = [
+            '@type'       => 'AggregateRating',
+            'ratingValue' => (string) $rSum['avg'],
+            'reviewCount' => (int) $rSum['count'],
+            'bestRating'  => '5',
+            'worstRating' => '1',
+        ];
+    }
+
     render_public('item_detail.php', [
         'item'            => $item,
         'ogImage'         => $ogImg,
-        'pageTitle'       => bi($item, 'title'),
-        'metaDescription' => mb_substr(strip_tags(bi($item, 'description')), 0, 155),
+        'ogType'          => 'book',
+        'pageTitle'       => $pageTitleVal,
+        'metaDescription' => $metaDescVal,
+        'jsonLdSchemas'   => [
+            ['@context' => 'https://schema.org', '@type' => 'BreadcrumbList', 'itemListElement' => $bcList],
+            $bookSchema,
+        ],
         'canonicalPath'   => '/book/' . rawurlencode($item['slug']),
         'activeNav'       => 'pdfs',
     ]);
@@ -1507,6 +1734,7 @@ if ($route === '/search') {
         'pageTitle'      => t('search_title'),
         'canonicalPath'  => '/search',
         'activeNav'      => 'search',
+        'robotsNoIndex'  => true,
     ]);
 }
 
