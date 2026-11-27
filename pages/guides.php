@@ -22,38 +22,55 @@ if (!empty($activeCategory)) {
         <?php endif; ?>
     </nav>
 
-    <div class="bx-section-head" style="margin-top:16px;">
-        <div>
-            <h1 class="bx-display" style="font-size:clamp(1.5rem,3vw,2.05rem);">
+    <div class="bx-page-hero is-guides" style="margin-top:16px;">
+        <div class="bx-page-hero-copy">
+            <span class="bx-badge bx-badge-accent" style="margin-bottom:8px;"><?= icon('book') ?> <?= $lang === 'bn' ? 'এডিটোরিয়াল গাইড' : 'Editorial Study Guides' ?></span>
+            <h1 class="bx-display" style="font-size:clamp(1.5rem,3vw,2.1rem);margin:0 0 8px;">
                 <?= e((string) ($headingLabel ?? ($lang === 'bn' ? 'স্টাডি গাইড ও পরীক্ষার প্রস্তুতি' : 'Study Guides & Exam Preparation'))) ?>
             </h1>
-            <p><?= e($lang === 'bn' ? 'বিসিএস, এসএসসি, এইচএসসি, মেডিকেল ও বিশ্ববিদ্যালয় ভর্তি পরীক্ষার সিলেবাস, কৌশল ও নির্ভরযোগ্য বইয়ের পরামর্শ।' : 'Syllabus breakdowns, tested exam strategies, and curated reading roadmaps.') ?></p>
+            <p style="margin:0;opacity:0.92;"><?= e($lang === 'bn' ? 'বিসিএস, এসএসসি, এইচএসসি, মেডিকেল ও বিশ্ববিদ্যালয় ভর্তি পরীক্ষার সিলেবাস, কৌশল ও নির্ভরযোগ্য বইয়ের পরামর্শ।' : 'Syllabus breakdowns, tested exam strategies, and curated reading roadmaps.') ?></p>
         </div>
-        <a href="<?= e(url('/feed.xml')) ?>" class="bx-btn bx-btn-outline bx-btn-sm">RSS Feed</a>
+        <div class="bx-page-hero-art">
+            <?= illustration_svg('guides') ?>
+            <a href="<?= e(url('/feed.xml')) ?>" class="bx-btn bx-btn-hero-ghost bx-btn-sm">RSS Feed</a>
+        </div>
     </div>
 
     <?php if (!empty($categories)): ?>
-        <div class="bx-shop-cat-pills" role="navigation" aria-label="Guide Categories" style="margin-bottom:14px;">
-            <a href="<?= e(url('/guides')) ?>" class="bx-cat-pill <?= empty($activeCategory) && empty($activeTag) ? 'active' : '' ?>">
-                <?= $lang === 'bn' ? 'সকল গাইড' : 'All Guides' ?>
-            </a>
-            <?php foreach ($categories as $cat): ?>
-                <a href="<?= e(url('/guides/' . rawurlencode((string) $cat['slug']))) ?>" class="bx-cat-pill <?= ($activeCategory ?? '') === $cat['slug'] ? 'active' : '' ?>">
-                    <?= e($lang === 'bn' ? ($cat['bn'] ?: $cat['en']) : ($cat['en'] ?: $cat['bn'])) ?>
+        <div class="bx-guides-cat-sticky">
+            <div class="bx-shop-cat-pills bx-cat-scroll" role="navigation" aria-label="Guide Categories">
+                <a href="<?= e(url('/guides')) ?>" class="bx-cat-pill <?= empty($activeCategory) && empty($activeTag) ? 'active' : '' ?>">
+                    <?= $lang === 'bn' ? 'সকল গাইড' : 'All Guides' ?>
                 </a>
-            <?php endforeach; ?>
+                <?php foreach ($categories as $cat): ?>
+                    <a href="<?= e(url('/guides/' . rawurlencode((string) $cat['slug']))) ?>" class="bx-cat-pill <?= ($activeCategory ?? '') === $cat['slug'] ? 'active' : '' ?>">
+                        <?= e($lang === 'bn' ? ($cat['bn'] ?: $cat['en']) : ($cat['en'] ?: $cat['bn'])) ?>
+                    </a>
+                <?php endforeach; ?>
+            </div>
         </div>
     <?php endif; ?>
 
     <?php if (!empty($allTags)): ?>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:22px;">
-            <?php foreach (array_slice($allTags, 0, 16) as $tg): ?>
-                <a href="<?= e(url('/guides/tag/' . rawurlencode((string) $tg))) ?>"
-                   class="bx-chip"
-                   style="text-decoration:none;<?= ($activeTag ?? '') === $tg ? 'background:var(--primary);color:#fff;' : '' ?>">
-                    #<?= e($tg) ?>
-                </a>
-            <?php endforeach; ?>
+        <div class="bx-guides-tags-bar">
+            <div class="bx-chip-scroll-row" id="bx-guide-tags-row">
+                <?php foreach (array_slice($allTags, 0, 16) as $tg): ?>
+                    <a href="<?= e(url('/guides/tag/' . rawurlencode((string) $tg))) ?>"
+                       class="bx-chip <?= ($activeTag ?? '') === $tg ? 'is-active' : '' ?>">
+                        #<?= e($tg) ?>
+                    </a>
+                <?php endforeach; ?>
+            </div>
+            <?php if (count($allTags) > 4): ?>
+                <button type="button"
+                        class="bx-btn bx-btn-outline bx-btn-sm"
+                        data-chip-more-toggle="#bx-guide-tags-row"
+                        aria-expanded="false"
+                        data-label-more="<?= e($lang === 'bn' ? 'আরও ট্যাগ' : 'More') ?>"
+                        data-label-less="<?= e($lang === 'bn' ? 'সংক্ষিপ্ত করুন' : 'Less') ?>">
+                    <?= $lang === 'bn' ? 'আরও ট্যাগ' : 'More' ?>
+                </button>
+            <?php endif; ?>
         </div>
     <?php endif; ?>
 
@@ -65,7 +82,7 @@ if (!empty($activeCategory)) {
             <a href="<?= e(url('/guides')) ?>" class="bx-btn bx-btn-primary bx-btn-sm"><?= e(t('nav_guides')) ?></a>
         </div>
     <?php else: ?>
-        <div class="bx-folder-grid" data-stagger>
+        <div class="bx-guides-grid" data-stagger>
             <?php foreach ($guides as $g): ?>
                 <?php
                 $gUrl = url('/guides/' . rawurlencode((string) $g['slug']));
@@ -73,7 +90,7 @@ if (!empty($activeCategory)) {
                 $mins = max(1, (int) ($g['reading_minutes'] ?? 3));
                 $excerpt = bi($g, 'summary') !== '' ? bi($g, 'summary') : content_excerpt(bi($g, 'body'), 140);
                 ?>
-                <article class="bx-card" style="display:flex;flex-direction:column;overflow:hidden;">
+                <article class="bx-card bx-guide-card" style="display:flex;flex-direction:column;overflow:hidden;">
                     <?php if (!empty($g['cover'])): ?>
                         <a href="<?= e($gUrl) ?>" style="display:block;aspect-ratio:16/9;overflow:hidden;">
                             <img src="<?= e(asset((string) $g['cover'])) ?>" alt="<?= e(bi($g, 'title')) ?>" width="480" height="270" loading="lazy" style="width:100%;height:100%;object-fit:cover;">
@@ -94,7 +111,7 @@ if (!empty($activeCategory)) {
                         <?php endif; ?>
                         <div style="margin-top:auto;padding-top:10px;display:flex;justify-content:space-between;align-items:center;font-size:0.82rem;border-top:1px solid var(--border);">
                             <span class="bx-muted"><?= e(num_localize(date('d M Y', strtotime((string) ($g['updated_at'] ?? $g['created_at'] ?? 'now')) ?: time()))) ?></span>
-                            <a href="<?= e($gUrl) ?>" style="font-weight:700;color:var(--primary);text-decoration:none;"><?= $lang === 'bn' ? 'বিস্তারিত পড়ুন →' : 'Read Guide →' ?></a>
+                            <a href="<?= e($gUrl) ?>" class="bx-guide-read-link" style="font-weight:700;color:var(--primary);text-decoration:none;"><?= $lang === 'bn' ? 'বিস্তারিত পড়ুন →' : 'Read Guide →' ?></a>
                         </div>
                     </div>
                 </article>

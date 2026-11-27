@@ -21,9 +21,15 @@ foreach (array_slice($folderTree['children']['root'] ?? [], 0, 6) as $rootFid) {
     }
 }
 
+$featuredBooks = db_all(
+    "SELECT * FROM items WHERE is_active = 1 AND is_featured = 1 AND {$pubRaw} ORDER BY sort_order ASC, id DESC LIMIT 4"
+);
 $newestItems = db_all(
     "SELECT * FROM items WHERE is_active = 1 AND {$pubRaw} ORDER BY id DESC LIMIT 4"
 );
+if (!$featuredBooks) {
+    $featuredBooks = $newestItems;
+}
 $popularItems = db_all(
     "SELECT *, (read_count + view_count) AS pop_score FROM items WHERE is_active = 1 AND {$pubRaw} ORDER BY pop_score DESC, is_featured DESC, id DESC LIMIT 4"
 );
@@ -58,15 +64,15 @@ if ($homeUser) {
 
 $totalFoldersStat = (int) ($folderTree['total_active'] ?? 0);
 $totalItemsStat   = (int) ($folderTree['total_items'] ?? (db_one("SELECT COUNT(*) AS c FROM items WHERE is_active = 1 AND {$pubRaw}")['c'] ?? 0));
-preload_items_card_meta(array_merge($newestItems, $popularItems, $freeItems, $continueReading, $recentlyViewed));
+preload_items_card_meta(array_merge($featuredBooks, $newestItems, $popularItems, $freeItems, $continueReading, $recentlyViewed));
 $lang = current_lang();
+$shopEnabledHome = site_setting('shop_enabled', '0') === '1';
 ?>
 
 <section class="bx-hero-wrap">
     <div class="container">
         <?php if (!empty($banners)): ?>
             <div class="bx-slider bx-hero-animated-bg" data-hero-slider>
-                <div class="bx-hero-gradient-orb" style="right:0;top:0;"></div>
                 <?php foreach ($banners as $i => $bn): ?>
                     <div class="bx-slide <?= $i === 0 ? 'active' : '' ?>">
                         <picture>
@@ -136,44 +142,119 @@ $lang = current_lang();
                 <?php endif; ?>
             </div>
         <?php else: ?>
-            <?php $shopEnabled = site_setting('shop_enabled', '0') === '1'; ?>
-            <!-- Fallback when no active banner exists: 3D Portal Cards -->
-            <div class="bx-portal-grid" style="<?= $shopEnabled ? '' : 'grid-template-columns: minmax(0, 1fr);' ?>">
-                <a href="<?= e(url('/pdf')) ?>" class="bx-portal-3d">
-                    <div class="bx-portal-card pdf-portal">
-                        <div>
-                            <span class="bx-badge" style="background:rgba(255,255,255,0.16);color:#FAF7F2;">
-                                <?= icon('book') ?> <?= e(t('hero_badge')) ?>
-                            </span>
-                            <h2><?= e(t('portal_pdf_title')) ?></h2>
-                            <p><?= e(t('portal_pdf_desc')) ?></p>
+            <!-- Designed Default Hero when no active banner is configured -->
+            <div class="bx-default-hero bx-hero-12grid">
+                <div class="bx-hero-blob is-a" aria-hidden="true"></div>
+                <div class="bx-hero-blob is-b" aria-hidden="true"></div>
+                <div class="bx-default-hero-copy">
+                    <span class="bx-badge bx-badge-accent" style="margin-bottom:14px;">
+                        <?= icon('shield') ?> <?= e(t('hero_badge')) ?>
+                    </span>
+                    <h1 class="bx-display">
+                        <?= $lang === 'bn'
+                            ? 'পড়াশোনা ও পরীক্ষার জন্য নিরাপদ ডিজিটাল লাইব্রেরি'
+                            : 'Your Secure Bangla Study & Digital Book Sanctuary' ?>
+                    </h1>
+                    <p class="bx-default-hero-sub">
+                        <?= $lang === 'bn'
+                            ? 'বিসিএস, বিশ্ববিদ্যালয় ভর্তি, এসএসসি ও এইচএসসির সাজানো পিডিএফ নোট এবং প্রিন্টেড বই—সহজ পেমেন্টে সরাসরি ব্রাউজারে পড়ুন।'
+                            : 'Read curated BCS, admission, SSC, and HSC PDFs inside our watermarked browser reader with instant mobile access.' ?>
+                    </p>
+                    <form class="bx-hero-search-form" action="<?= e(url('/search')) ?>" method="get">
+                        <input type="search" name="q" class="bx-input" placeholder="<?= e(t('search_placeholder')) ?>" aria-label="<?= e(t('nav_search')) ?>">
+                        <button type="submit" class="bx-btn bx-btn-primary"><?= icon('search') ?> <span><?= e($lang === 'bn' ? 'খুঁজুন' : 'Search') ?></span></button>
+                    </form>
+                    <div class="bx-hero-cta-row">
+                        <a href="<?= e(url('/pdf')) ?>" class="bx-btn bx-btn-accent">
+                            <?= e(t('portal_pdf_cta')) ?> <?= icon('chevron-right') ?>
+                        </a>
+                        <a href="<?= e(url($shopEnabledHome ? '/shop' : '/guides')) ?>" class="bx-btn bx-btn-hero-ghost">
+                            <?= $shopEnabledHome ? e(t('portal_shop_cta')) : ($lang === 'bn' ? 'স্টাডি গাইড পড়ুন' : 'Read Study Guides') ?>
+                        </a>
+                    </div>
+                </div>
+                <div class="bx-default-hero-stage" aria-hidden="true">
+                    <div class="bx-book-stack-3d">
+                        <div class="bx-stack-book b3">
+                            <span class="bx-stack-spine"></span>
+                            <strong><?= $lang === 'bn' ? 'বাংলা ও সাহিত্য' : 'Literature' ?></strong>
+                            <small>PDF + Print</small>
                         </div>
-                        <div>
-                            <span class="bx-btn bx-btn-accent"><?= e(t('portal_pdf_cta')) ?> <?= icon('chevron-right') ?></span>
+                        <div class="bx-stack-book b2">
+                            <span class="bx-stack-spine"></span>
+                            <strong><?= $lang === 'bn' ? 'একাডেমিক গাইড' : 'Academic' ?></strong>
+                            <small>SSC · HSC</small>
+                        </div>
+                        <div class="bx-stack-book b1">
+                            <span class="bx-stack-spine"></span>
+                            <span class="bx-stack-ribbon"></span>
+                            <strong><?= $lang === 'bn' ? 'বিসিএস ও ভর্তি' : 'BCS & Exam' ?></strong>
+                            <small>100% Protected</small>
                         </div>
                     </div>
-                </a>
-
-                <?php if ($shopEnabled): ?>
-                <a href="<?= e(url('/shop')) ?>" class="bx-portal-3d">
-                    <div class="bx-portal-card shop-portal">
-                        <div>
-                            <span class="bx-badge" style="background:rgba(255,255,255,0.16);color:#FAF7F2;">
-                                <?= icon('cart') ?> <?= e(t('shop_badge')) ?>
-                            </span>
-                            <h2><?= e(t('portal_shop_title')) ?></h2>
-                            <p><?= e(t('portal_shop_desc')) ?></p>
-                        </div>
-                        <div>
-                            <span class="bx-btn bx-btn-primary"><?= e(t('portal_shop_cta')) ?> <?= icon('chevron-right') ?></span>
-                        </div>
-                    </div>
-                </a>
-                <?php endif; ?>
+                </div>
             </div>
         <?php endif; ?>
     </div>
 </section>
+
+<!-- Trust Strip (4 balanced highlights across desktop 12-column grid) -->
+<section class="bx-section bx-trust-section">
+    <div class="container">
+        <div class="bx-trust-strip" role="region" aria-label="<?= e($lang === 'bn' ? 'বুকএক্সা নিরাপত্তা ও সুবিধা' : 'Bookexa Trust Highlights') ?>">
+            <div class="bx-trust-pill">
+                <span class="bx-trust-ico"><?= icon('shield') ?></span>
+                <div>
+                    <strong><?= $lang === 'bn' ? 'সুরক্ষিত ব্রাউজার রিডার' : 'Secure Browser Reader' ?></strong>
+                    <span><?= $lang === 'bn' ? 'ওয়াটারমার্ক ও একক সেশন সুরক্ষা' : 'Dynamic watermark & session guard' ?></span>
+                </div>
+            </div>
+            <div class="bx-trust-pill">
+                <span class="bx-trust-ico"><?= icon('check') ?></span>
+                <div>
+                    <strong><?= $lang === 'bn' ? 'বিকাশ ও নগদ পেমেন্ট' : 'bKash, Nagad & Rocket' ?></strong>
+                    <span><?= $lang === 'bn' ? 'দ্রুত ম্যানুয়াল ভেরিফিকেশন' : 'Local Bangladesh mobile checkout' ?></span>
+                </div>
+            </div>
+            <div class="bx-trust-pill">
+                <span class="bx-trust-ico"><?= icon('book') ?></span>
+                <div>
+                    <strong><?= $lang === 'bn' ? 'ডাউনলোড ছাড়াই পড়া' : 'Instant Stream — No Download' ?></strong>
+                    <span><?= $lang === 'bn' ? 'সরাসরি ফোন বা ল্যাপটপে পড়ুন' : 'Zero messy files on your device' ?></span>
+                </div>
+            </div>
+            <div class="bx-trust-pill">
+                <span class="bx-trust-ico"><?= icon('globe') ?></span>
+                <div>
+                    <strong><?= $lang === 'bn' ? 'ফ্রি স্যাম্পল প্রিভিউ' : 'Free Sample Pages' ?></strong>
+                    <span><?= $lang === 'bn' ? 'কেনার আগে কয়েক পৃষ্ঠা পড়ে দেখুন' : 'Preview pages before unlocking' ?></span>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- Featured Books Row (Dedicated desktop 12-column / 4-card row) -->
+<?php if (!empty($featuredBooks)): ?>
+<section class="bx-section">
+    <div class="container">
+        <div class="bx-section-head">
+            <div>
+                <h2 class="bx-h2"><?= $lang === 'bn' ? 'বিশেষ নির্বাচিত বইসমূহ' : 'Featured Books' ?></h2>
+                <p><?= $lang === 'bn' ? 'শিক্ষার্থীদের পছন্দের শীর্ষ একাডেমিক ও প্রস্তুতিমূলক বই।' : 'Handpicked top digital editions for exam and academic mastery.' ?></p>
+            </div>
+            <a href="<?= e(url('/search?sort=featured')) ?>" class="bx-btn bx-btn-outline bx-btn-sm">
+                <?= e(t('view_all')) ?> <?= icon('chevron-right') ?>
+            </a>
+        </div>
+        <div class="bx-book-grid bx-book-grid-12" data-stagger>
+            <?php foreach ($featuredBooks as $fItem): ?>
+                <?= render_book_card($fItem) ?>
+            <?php endforeach; ?>
+        </div>
+    </div>
+</section>
+<?php endif; ?>
 
 <!-- Continue Reading (Logged-in users with progress) -->
 <?php if (!empty($continueReading)): ?>

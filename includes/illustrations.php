@@ -60,6 +60,48 @@ function illustration_svg(string $type): string
         </svg>';
     }
 
+    if ($type === 'shop') {
+        return '<svg class="bx-illus bx-hero-illus" viewBox="0 0 220 150" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="28" y="34" width="110" height="92" rx="18" fill="#FBF6EC" fill-opacity="0.95"/>
+          <path d="M52 34V26C52 18 62 14 83 14C104 14 114 18 114 26V34" stroke="#F4A62A" stroke-width="4" stroke-linecap="round"/>
+          <rect x="48" y="54" width="70" height="52" rx="10" fill="#0F766E"/>
+          <rect x="116" y="44" width="76" height="84" rx="14" fill="#F4A62A"/>
+          <circle cx="154" cy="84" r="18" fill="#14213D" fill-opacity="0.16"/>
+          <path d="M144 84H164M154 74V94" stroke="#14213D" stroke-width="3" stroke-linecap="round"/>
+        </svg>';
+    }
+
+    if ($type === 'guides') {
+        return '<svg class="bx-illus bx-hero-illus" viewBox="0 0 220 150" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="24" y="24" width="172" height="106" rx="20" fill="#FBF6EC" fill-opacity="0.96"/>
+          <path d="M110 34V120" stroke="#2B2F77" stroke-width="2.5" stroke-dasharray="4 4"/>
+          <rect x="42" y="42" width="52" height="8" rx="4" fill="#2B2F77"/>
+          <rect x="42" y="58" width="46" height="6" rx="3" fill="#14B8A6"/>
+          <rect x="42" y="72" width="50" height="6" rx="3" fill="#4A5572" fill-opacity="0.5"/>
+          <circle cx="152" cy="70" r="22" fill="#F4A62A" fill-opacity="0.25"/>
+          <path d="M144 78L152 54L160 78L152 72L144 78Z" fill="#2B2F77"/>
+        </svg>';
+    }
+
+    if ($type === 'contact') {
+        return '<svg class="bx-illus bx-hero-illus" viewBox="0 0 220 150" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="26" y="28" width="168" height="96" rx="20" fill="#FBF6EC" fill-opacity="0.96"/>
+          <path d="M40 42L110 86L180 42" stroke="#0F766E" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="174" cy="36" r="18" fill="#14B8A6"/>
+          <path d="M167 36L172 41L181 31" stroke="#0B1020" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>';
+    }
+
+    if ($type === 'faq') {
+        return '<svg class="bx-illus bx-hero-illus" viewBox="0 0 220 150" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="26" y="22" width="120" height="82" rx="20" fill="#FBF6EC" fill-opacity="0.96"/>
+          <rect x="92" y="54" width="104" height="72" rx="18" fill="#F4A62A"/>
+          <circle cx="78" cy="62" r="22" fill="#2B2F77" fill-opacity="0.14"/>
+          <text x="78" y="71" text-anchor="middle" font-size="28" font-weight="700" fill="#2B2F77" font-family="sans-serif">?</text>
+          <path d="M114 82H172M114 98H156" stroke="#14213D" stroke-width="3.5" stroke-linecap="round"/>
+        </svg>';
+    }
+
     // Default: empty folder / shelf illustration
     return '<svg class="bx-illus" viewBox="0 0 260 180" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
       <defs>

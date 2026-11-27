@@ -992,6 +992,16 @@ final class PageServer
             $maxWidth = 0;
         }
 
+        if (!extension_loaded('gd') || !function_exists('imagecreatefromstring')) {
+            http_response_code(500);
+            header('Content-Type: application/json; charset=UTF-8');
+            echo json_encode([
+                'error'   => 'WATERMARK_RENDER_ERROR',
+                'message' => 'Server image rendering failed (PHP GD required).',
+            ]);
+            exit;
+        }
+
         $slotToken = PageServer::acquireRenderSlot();
         if ($slotToken === null) {
             http_response_code(503);
@@ -1020,9 +1030,15 @@ final class PageServer
         ]);
         PageServer::releaseRenderSlot($slotToken);
         if (!$rendered) {
+            error_log("Bookexa PageServer: failed to decode/watermark item={$itemId} page={$pageNum} src={$srcFile}");
             http_response_code(500);
-            header('Content-Type: application/json');
-            echo json_encode(['error' => 'WATERMARK_RENDER_ERROR', 'message' => 'Server image rendering failed (PHP GD required).']);
+            header('Content-Type: application/json; charset=UTF-8');
+            echo json_encode([
+                'error'   => 'PAGE_IMAGE_CORRUPT',
+                'message' => current_lang() === 'bn'
+                    ? 'সার্ভারে এই পৃষ্ঠার ছবিটি অসম্পূর্ণ বা নষ্ট হয়েছে। অনুগ্রহ করে অ্যাডমিন প্যানেল থেকে PDF-টির পৃষ্ঠা পুনরায় প্রস্তুত করুন।'
+                    : 'Prepared page image on the server is unreadable or corrupted. Please re-prepare pages for this PDF in Admin.',
+            ]);
         }
         exit;
     }
@@ -1153,8 +1169,8 @@ final class PageServer
             exit;
         }
 
-        $minLen = preg_match('/\p{Bengali}/u', $q) ? 2 : 3;
-        if (mb_strlen($q) < $minLen) {
+        $minLen = 2;
+        if (mb_strlen($q, 'UTF-8') < $minLen) {
             echo json_encode(['ok' => true, 'results' => []]);
             exit;
         }
@@ -1179,6 +1195,21 @@ final class PageServer
         $totalFallback = max($preparedCount, (int) ($item['total_pages'] ?? 0));
         $maxAllowed = (!$canReadFull && $isSample) ? min($totalFallback, (int) $item['sample_pages']) : $totalFallback;
 
+        $results = self::searchPages($itemId, $q, max(1, $maxAllowed));
+        echo json_encode(['ok' => true, 'results' => $results], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    /**
+     * Execute escaped LIKE search inside a book's normalized page text index (min length: 2 chars).
+     */
+    public static function searchPages(int $itemId, string $query, int $maxAllowed = 99999): array
+    {
+        $q = trim($query);
+        if ($itemId <= 0 || mb_strlen($q, 'UTF-8') < 2) {
+            return [];
+        }
+
         $normQ = preg_replace('/\s+/u', ' ', $q) ?? $q;
         $like = '%' . escape_like($normQ) . '%';
         $rows = db_all(
@@ -1193,22 +1224,20 @@ final class PageServer
         $results = [];
         foreach ($rows as $r) {
             $text = (string) $r['norm_text'];
-            $pos = mb_stripos($text, $normQ);
+            $pos = mb_stripos($text, $normQ, 0, 'UTF-8');
             $start = ($pos !== false) ? max(0, $pos - 18) : 0;
-            $snip = mb_substr($text, $start, 60);
+            $snip = mb_substr($text, $start, 60, 'UTF-8');
             if ($start > 0) {
-                $snip = '…' . ltrim(mb_substr($snip, 0, 59));
+                $snip = '…' . ltrim(mb_substr($snip, 0, 59, 'UTF-8'));
             }
-            if (mb_strlen($snip) > 60) {
-                $snip = mb_substr($snip, 0, 60);
+            if (mb_strlen($snip, 'UTF-8') > 60) {
+                $snip = mb_substr($snip, 0, 60, 'UTF-8');
             }
             $results[] = [
                 'page'    => (int) $r['page_num'],
                 'snippet' => $snip,
             ];
         }
-
-        echo json_encode(['ok' => true, 'results' => $results], JSON_UNESCAPED_UNICODE);
-        exit;
+        return $results;
     }
 }

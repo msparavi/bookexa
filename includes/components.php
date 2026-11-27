@@ -98,7 +98,7 @@ function render_book_card(array $item, array $options = []): string
                     aria-pressed="<?= $isWished ? 'true' : 'false' ?>"
                     aria-label="<?= e($wishLabel) ?>"><?= icon('heart') ?></button>
             <div class="bx-book-info">
-                <a href="<?= e($detailUrl) ?>">
+                <a href="<?= e($detailUrl) ?>" class="bx-book-title-link">
                     <h3 class="bx-book-title"><?= $titleHtml ?></h3>
                 </a>
                 <?php if ($author !== '' || $ratingInfo['count'] > 0): ?>

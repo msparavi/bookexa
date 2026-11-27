@@ -19,22 +19,29 @@ $reviewed = site_setting('legal_last_reviewed', date('Y-m-d'));
         <span class="current"><?= e(t('nav_faq')) ?></span>
     </nav>
 
-    <header style="margin:16px 0 22px;">
-        <h1 class="bx-display" style="font-size:clamp(1.5rem,3vw,2.1rem);margin:0 0 10px;">
-            <?= $lang === 'bn' ? 'সচরাচর জিজ্ঞাসিত প্রশ্নোত্তর (FAQ)' : 'Frequently Asked Questions (FAQ)' ?>
-        </h1>
-        <div class="bx-answer-box">
-            <span class="bx-answer-kicker"><?= $lang === 'bn' ? 'সংক্ষিপ্ত উত্তর' : 'Quick Summary' ?></span>
-            <p>
-                <?= $lang === 'bn'
-                    ? 'Bookexa-তে বিকাশ, নগদ ও রকেট বা ক্যাশ অন ডেলিভারির মাধ্যমে সহজে বই সংগ্রহ করা যায়। পেমেন্ট যাচাই শেষে অ্যাকাউন্টের ২টি বিশ্বস্ত ডিভাইসে নিরাপদ ওয়াটারমার্ক ব্রাউজার রিডারে সাথে সাথে পড়া যায় এবং ভুল বা ডাবল পেমেন্টে ৪৮ ঘণ্টার মধ্যে রিফান্ড সহায়তা পাওয়া যায়।'
-                    : 'Readers on Bookexa pay safely via bKash, Nagad, Rocket, or Cash on Delivery across Bangladesh. Verified PDFs unlock directly in My Library for watermarked reading across up to two trusted devices in any mobile or desktop browser, backed by transparent 48-hour duplicate-payment refund support.' ?>
-            </p>
+    <div class="bx-page-hero is-faq" style="margin:16px 0 22px;">
+        <div class="bx-page-hero-copy">
+            <span class="bx-badge bx-badge-teal" style="margin-bottom:8px;"><?= icon('sparkles') ?> <?= $lang === 'bn' ? 'সাহায্য কেন্দ্র' : 'Knowledge Base' ?></span>
+            <h1 class="bx-display" style="font-size:clamp(1.5rem,3vw,2.1rem);margin:0 0 10px;">
+                <?= $lang === 'bn' ? 'সচরাচর জিজ্ঞাসিত প্রশ্নোত্তর (FAQ)' : 'Frequently Asked Questions (FAQ)' ?>
+            </h1>
+            <div class="bx-muted" style="font-size:0.88rem;">
+                <?= $lang === 'bn' ? 'সর্বশেষ পর্যালোচনা:' : 'Last reviewed:' ?> <strong><?= e(num_localize($reviewed)) ?></strong>
+            </div>
         </div>
-        <div class="bx-muted" style="font-size:0.86rem;">
-            <?= $lang === 'bn' ? 'সর্বশেষ পর্যালোচনা:' : 'Last reviewed:' ?> <strong><?= e(num_localize($reviewed)) ?></strong>
+        <div class="bx-page-hero-art">
+            <?= illustration_svg('faq') ?>
         </div>
-    </header>
+    </div>
+
+    <div class="bx-answer-box" style="margin-bottom:22px;">
+        <span class="bx-answer-kicker"><?= $lang === 'bn' ? 'সংক্ষিপ্ত উত্তর' : 'Quick Summary' ?></span>
+        <p>
+            <?= $lang === 'bn'
+                ? 'Bookexa-তে বিকাশ, নগদ ও রকেট বা ক্যাশ অন ডেলিভারির মাধ্যমে সহজে বই সংগ্রহ করা যায়। পেমেন্ট যাচাই শেষে অ্যাকাউন্টের ২টি বিশ্বস্ত ডিভাইসে নিরাপদ ওয়াটারমার্ক ব্রাউজার রিডারে সাথে সাথে পড়া যায় এবং ভুল বা ডাবল পেমেন্টে ৪৮ ঘণ্টার মধ্যে রিফান্ড সহায়তা পাওয়া যায়।'
+                : 'Readers on Bookexa pay safely via bKash, Nagad, Rocket, or Cash on Delivery across Bangladesh. Verified PDFs unlock directly in My Library for watermarked reading across up to two trusted devices in any mobile or desktop browser, backed by transparent 48-hour duplicate-payment refund support.' ?>
+        </p>
+    </div>
 
     <!-- Jump links by topic -->
     <div class="bx-shop-cat-pills" style="margin-bottom:24px;">

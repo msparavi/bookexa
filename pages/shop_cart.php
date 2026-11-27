@@ -60,7 +60,7 @@ $freeAbove = (float) ($del['free_above'] ?? 0);
                         <div class="bx-cart-row">
                             <img src="<?= e($cov) ?>" alt="<?= e(bi($it, 'title')) ?>" width="64" height="90" style="width:64px;height:90px;object-fit:cover;border-radius:10px;flex-shrink:0;">
                             <div style="flex:1 1 180px;min-width:0;">
-                                <a href="<?= e(url('/shop/' . rawurlencode((string) $it['slug']))) ?>" style="font-weight:700;color:var(--primary);display:block;"><?= e(bi($it, 'title')) ?></a>
+                                <a href="<?= e(url('/shop/' . rawurlencode((string) $it['slug']))) ?>" class="bx-book-title-link" style="font-weight:700;color:var(--primary);"><?= e(bi($it, 'title')) ?></a>
                                 <div class="bx-muted" style="font-size:0.86rem;"><?= e(format_bdt((float) $it['unit_price'])) ?> × <?= (int) $it['quantity'] ?> = <strong><?= e(format_bdt((float) $it['line_total'])) ?></strong></div>
                                 <small class="bx-muted"><?= $lang === 'bn' ? 'স্টক আছে: ' : 'Stock: ' ?><?= (int) $maxStock ?></small>
                             </div>

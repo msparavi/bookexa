@@ -35,7 +35,7 @@ $updDate = num_localize(date('d M Y', strtotime((string) ($guide['updated_at'] ?
             </h1>
             <div class="bx-muted" style="font-size:0.88rem;display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
                 <?php if ($authorProfile): ?>
-                    <span><?= $lang === 'bn' ? 'লেখক:' : 'By' ?> <a href="<?= e(url('/authors/' . rawurlencode((string) $authorProfile['slug']))) ?>" style="color:var(--primary);font-weight:700;"><?= e(bi($authorProfile, 'name')) ?></a></span>
+                    <span><?= $lang === 'bn' ? 'লেখক:' : 'By' ?> <a href="<?= e(url('/authors/' . rawurlencode((string) $authorProfile['slug']))) ?>" class="bx-book-title-link" style="color:var(--primary);font-weight:700;"><?= e(bi($authorProfile, 'name')) ?></a></span>
                 <?php elseif (!empty($guide['author_name'])): ?>
                     <span><?= $lang === 'bn' ? 'লেখক:' : 'By' ?> <strong><?= e((string) $guide['author_name']) ?></strong></span>
                 <?php endif; ?>
@@ -122,7 +122,7 @@ $updDate = num_localize(date('d M Y', strtotime((string) ($guide['updated_at'] ?
                             <p>
                                 <?= e($at) ?>
                                 <?php if ($fqUrl !== ''): ?>
-                                    <a href="<?= e(str_starts_with($fqUrl, 'http') ? $fqUrl : url($fqUrl)) ?>" style="display:inline-block;margin-left:6px;font-weight:700;color:var(--primary);"><?= $lang === 'bn' ? 'বিস্তারিত →' : 'Learn more →' ?></a>
+                                    <a href="<?= e(str_starts_with($fqUrl, 'http') ? $fqUrl : url($fqUrl)) ?>" class="bx-book-title-link" style="margin-left:6px;font-weight:700;color:var(--primary);"><?= $lang === 'bn' ? 'বিস্তারিত →' : 'Learn more →' ?></a>
                                 <?php endif; ?>
                             </p>
                         </details>
@@ -142,7 +142,7 @@ $updDate = num_localize(date('d M Y', strtotime((string) ($guide['updated_at'] ?
                 <?php endif; ?>
                 <div style="flex:1 1 240px;">
                     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:4px;">
-                        <a href="<?= e(url('/authors/' . rawurlencode((string) $authorProfile['slug']))) ?>" style="font-weight:800;font-size:1.05rem;color:var(--text);text-decoration:none;"><?= e(bi($authorProfile, 'name')) ?></a>
+                        <a href="<?= e(url('/authors/' . rawurlencode((string) $authorProfile['slug']))) ?>" class="bx-book-title-link" style="font-weight:800;font-size:1.05rem;color:var(--text);text-decoration:none;"><?= e(bi($authorProfile, 'name')) ?></a>
                         <?php if (bi($authorProfile, 'expertise') !== ''): ?>
                             <span class="bx-badge bx-badge-teal"><?= e(bi($authorProfile, 'expertise')) ?></span>
                         <?php endif; ?>
@@ -150,9 +150,9 @@ $updDate = num_localize(date('d M Y', strtotime((string) ($guide['updated_at'] ?
                     <?php if (bi($authorProfile, 'bio') !== ''): ?>
                         <p class="bx-muted" style="margin:0 0 8px;font-size:0.9rem;line-height:1.6;"><?= e(bi($authorProfile, 'bio')) ?></p>
                     <?php endif; ?>
-                    <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:0.82rem;">
-                        <a href="<?= e(url('/authors/' . rawurlencode((string) $authorProfile['slug']))) ?>" style="font-weight:700;color:var(--primary);"><?= $lang === 'bn' ? 'লেখকের সকল গাইড ও বই →' : 'All Guides & Books by Author →' ?></a>
-                        <a href="<?= e(url('/editorial-policy')) ?>" class="bx-muted"><?= e(t('legal_editorial')) ?></a>
+                    <div style="display:flex;gap:10px;flex-wrap:wrap;font-size:0.9rem;">
+                        <a href="<?= e(url('/authors/' . rawurlencode((string) $authorProfile['slug']))) ?>" class="bx-book-title-link" style="font-weight:700;color:var(--primary);"><?= $lang === 'bn' ? 'লেখকের সকল গাইড ও বই →' : 'All Guides & Books by Author →' ?></a>
+                        <a href="<?= e(url('/editorial-policy')) ?>" class="bx-book-title-link bx-muted"><?= e(t('legal_editorial')) ?></a>
                     </div>
                 </div>
             </aside>
@@ -178,7 +178,7 @@ $updDate = num_localize(date('d M Y', strtotime((string) ($guide['updated_at'] ?
                             <img src="<?= e($bCov) ?>" alt="<?= e(bi($rb, 'title')) ?>" width="300" height="400" loading="lazy">
                         </a>
                         <div class="bx-book-body">
-                            <a href="<?= e($bUrl) ?>" class="bx-book-title"><?= e(bi($rb, 'title')) ?></a>
+                            <a href="<?= e($bUrl) ?>" class="bx-book-title bx-book-title-link"><?= e(bi($rb, 'title')) ?></a>
                             <div class="bx-book-foot" style="gap:6px;flex-wrap:wrap;">
                                 <span class="bx-price"><?= $isFree ? e(t('free_badge')) : e(format_bdt((float) $rb['price'])) ?></span>
                                 <?php if ($isFree): ?>

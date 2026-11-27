@@ -85,6 +85,81 @@ function mig_add_index_if_missing(PDO $pdo, string $table, string $indexName, st
     return true;
 }
 
+function mig_column_type(PDO $pdo, string $table, string $column): ?string
+{
+    $st = $pdo->prepare(
+        'SELECT COLUMN_TYPE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1'
+    );
+    $st->execute([$table, $column]);
+    $raw = $st->fetchColumn();
+    return is_string($raw) && trim($raw) !== '' ? strtoupper(trim($raw)) : null;
+}
+
+function mig_ensure_innodb(PDO $pdo, string $table): void
+{
+    if (!mig_table_exists($pdo, $table)) {
+        return;
+    }
+    $st = $pdo->prepare(
+        'SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1'
+    );
+    $st->execute([$table]);
+    $engine = (string) ($st->fetchColumn() ?: '');
+    if ($engine !== '' && strcasecmp($engine, 'InnoDB') !== 0) {
+        $pdo->exec("ALTER TABLE `{$table}` ENGINE=InnoDB");
+    }
+}
+
+function mig_foreign_key_exists(PDO $pdo, string $table, string $fkName): bool
+{
+    $st = $pdo->prepare(
+        "SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+         WHERE CONSTRAINT_SCHEMA = DATABASE() AND TABLE_NAME = ? AND CONSTRAINT_NAME = ? AND CONSTRAINT_TYPE = 'FOREIGN KEY'
+         LIMIT 1"
+    );
+    $st->execute([$table, $fkName]);
+    return (bool) $st->fetchColumn();
+}
+
+function mig_add_foreign_key_if_missing(
+    PDO $pdo,
+    string $table,
+    string $fkName,
+    string $column,
+    string $refTable,
+    string $refColumn,
+    string $onDelete = 'CASCADE'
+): bool {
+    if (!mig_table_exists($pdo, $table) || !mig_table_exists($pdo, $refTable)) {
+        return false;
+    }
+    if (mig_foreign_key_exists($pdo, $table, $fkName)) {
+        return false;
+    }
+    mig_ensure_innodb($pdo, $refTable);
+    mig_ensure_innodb($pdo, $table);
+
+    $refType = mig_column_type($pdo, $refTable, $refColumn);
+    $colType = mig_column_type($pdo, $table, $column);
+    if ($refType !== null && $colType !== null) {
+        $refUnsigned = str_contains($refType, 'UNSIGNED');
+        $colUnsigned = str_contains($colType, 'UNSIGNED');
+        if ($refUnsigned !== $colUnsigned || str_replace(['(10)', '(11)', '(20)'], '', $refType) !== str_replace(['(10)', '(11)', '(20)'], '', $colType)) {
+            $pdo->exec("ALTER TABLE `{$table}` MODIFY COLUMN `{$column}` {$refType} NOT NULL");
+        }
+    }
+
+    try {
+        $pdo->exec(
+            "ALTER TABLE `{$table}` ADD CONSTRAINT `{$fkName}` FOREIGN KEY (`{$column}`) REFERENCES `{$refTable}` (`{$refColumn}`) ON DELETE {$onDelete}"
+        );
+        return true;
+    } catch (Throwable $e) {
+        @error_log('[' . date('c') . "] Skipped FK {$fkName} on {$table}.{$column}: " . $e->getMessage() . "\n");
+        return false;
+    }
+}
+
 function mig_insert_setting_if_missing(PDO $pdo, string $key, string $defaultValue): bool
 {
     if (!mig_table_exists($pdo, 'settings')) {

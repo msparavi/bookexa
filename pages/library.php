@@ -69,7 +69,7 @@ $timeFmt = $hrs > 0
                             </span>
                         </a>
                         <div class="bx-book-info">
-                            <a href="<?= e($readUrl) ?>"><h3 class="bx-book-title"><?= e(bi($item, 'title')) ?></h3></a>
+                            <a href="<?= e($readUrl) ?>" class="bx-book-title-link"><h2 class="bx-book-title"><?= e(bi($item, 'title')) ?></h2></a>
                             <?php if ($lastPage > 0): ?>
                                 <p class="bx-book-author"><?= $lang === 'bn' ? 'সর্বশেষ পড়া: পৃষ্ঠা ' . num_localize($lastPage) . ($totPages ? '/' . num_localize($totPages) : '') : 'Progress: Page ' . $lastPage . ($totPages ? '/' . $totPages : '') ?></p>
                             <?php else: ?>

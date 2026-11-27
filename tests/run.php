@@ -21,6 +21,7 @@ foreach ($argv ?? [] as $arg) {
 require_once dirname(__DIR__) . '/includes/bootstrap.php';
 require_once APP_ROOT . '/includes/admin_helpers.php';
 require_once APP_ROOT . '/includes/pdf_proxy.php';
+require_once APP_ROOT . '/tests/schema_check.php';
 
 // Track clean DB state & metrics
 $results = ['pass' => 0, 'fail' => 0, 'skip' => 0];
@@ -234,15 +235,23 @@ t_case('Rate Limits', static function (): void {
 });
 
 // ----------------------------------------------------------------------------
-// 7. Migrations Idempotency & Schema Verification
+// 7. Schema Validation, Migrations Idempotency & FK Compatibility Check
 // ----------------------------------------------------------------------------
 t_case('Migrations Runner & Schema Check', static function (): void {
+    $schemaRes = bookexa_validate_schema_sql(APP_ROOT . '/database/bookexa.sql');
+    t_assert(!empty($schemaRes['ok']) && (int) $schemaRes['tables'] >= 35, 'database/bookexa.sql passes duplicate-column & InnoDB check (' . (int) ($schemaRes['tables'] ?? 0) . ' tables)');
+
     $run = migration_run_pending();
     t_assert(!empty($run['ok']) && (int) $run['pending'] === 0, 'All migrations cleanly applied (0 pending)');
     $st = migration_list_status();
     t_assert((int) $st['pending_count'] === 0 && count($st['items']) >= 10, 'migration_list_status reports >=10 tracked migrations applied');
     $r2 = migration_run_pending();
     t_assert(!empty($r2['ok']) && empty($r2['errors']), 'Re-running migration_run_pending is idempotent');
+
+    // Re-running migration 005 on top of an existing schema verifies parent-first + FK guard idempotency
+    $m005 = migration_run_one('005_security_reliability_fixes');
+    $pdo = db();
+    t_assert(!empty($m005['ok']) && mig_table_exists($pdo, 'reading_daily_usage') && mig_foreign_key_exists($pdo, 'reading_daily_usage', 'fk_rdu_user') && mig_foreign_key_exists($pdo, 'reading_daily_usage', 'fk_rdu_item'), 'Migration 005 reading_daily_usage parent order & FKs verified idempotently');
 });
 
 // ----------------------------------------------------------------------------
@@ -375,9 +384,33 @@ t_case('AEO & GEO Optimization Layer', static function (): void {
     t_assert(str_contains($llmsBn, '## Key Sections') && str_contains($llmsEn, '/catalog.json'), 'llms.txt generates bilingual Markdown with feeds');
     t_assert(!str_contains($llmsEn, 'item_page_texts') && !str_contains($llmsEn, '/reader/'), 'llms.txt excludes protected reader/PDF full-text paths');
 
-    $catFeed = aeo_build_catalog_json(1, 20);
-    $gdFeed  = aeo_build_guides_json(1, 20);
-    t_assert(!empty($catFeed['items']) && isset($catFeed['items'][0]['price_as_of']) && !empty($gdFeed['guides']), 'catalog.json and guides.json produce structured machine feeds');
+    // Self-contained fixtures so feed validation succeeds on both seeded DBs and fresh empty CI imports
+    $sfx = substr(bin2hex(random_bytes(3)), 0, 6);
+    $fid = 0;
+    $iid = 0;
+    $gid = 0;
+    try {
+        db_exec('INSERT INTO folders (slug, name_bn, name_en, is_active) VALUES (?, ?, ?, 1)', ["ut-feed-f-{$sfx}", 'ফিড ফোল্ডার', 'Feed Folder']);
+        $fid = (int) db()->lastInsertId();
+        db_exec('INSERT INTO items (folder_id, slug, title_bn, title_en, price, is_free, is_active) VALUES (?, ?, ?, ?, 120.00, 0, 1)', [$fid, "ut-feed-b-{$sfx}", 'ফিড বই', 'Feed Test Book']);
+        $iid = (int) db()->lastInsertId();
+        db_exec('INSERT INTO guides (slug, title_bn, title_en, summary_bn, summary_en, short_answer_bn, short_answer_en, body_bn, body_en, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1)', ["ut-feed-g-{$sfx}", 'ফিড গাইড', 'Feed Study Guide', 'সারাংশ', 'Summary', 'সংক্ষিপ্ত উত্তর', 'Short answer text', '<p>বিস্তারিত</p>', '<p>Details</p>']);
+        $gid = (int) db()->lastInsertId();
+
+        $catFeed = aeo_build_catalog_json(1, 20);
+        $gdFeed  = aeo_build_guides_json(1, 20);
+        t_assert(
+            !empty($catFeed['items'])
+            && isset($catFeed['items'][0]['price_as_of'], $catFeed['items'][0]['url_bn'], $catFeed['items'][0]['url_en'])
+            && !empty($gdFeed['guides'])
+            && isset($gdFeed['guides'][0]['short_answer_en'], $gdFeed['guides'][0]['url_bn'], $gdFeed['guides'][0]['url_en']),
+            'catalog.json and guides.json produce structured machine feeds'
+        );
+    } finally {
+        if ($gid > 0) db_exec('DELETE FROM guides WHERE id = ?', [$gid]);
+        if ($iid > 0) db_exec('DELETE FROM items WHERE id = ?', [$iid]);
+        if ($fid > 0) db_exec('DELETE FROM folders WHERE id = ?', [$fid]);
+    }
 
     $scores = aeo_score_all_pages();
     t_assert($scores['total_evaluated'] >= 1 && isset($scores['average_score']) && is_array($scores['top_to_improve']), 'AEO readiness scorer evaluates public pages cleanly');
@@ -398,6 +431,15 @@ t_case('Core Web Vitals & Performance Layer', static function (): void {
         t_assert(!empty($manifest['files']['app_js']['path']) && is_file(APP_ROOT . '/' . $manifest['files']['app_js']['path']), 'Content-hashed public JS bundle exists on disk');
         t_assert(!empty($manifest['files']['reader_js']['path']) && !str_contains($manifest['files']['app_js']['path'], 'reader'), 'Reader JS bundle split cleanly from public JS');
         t_assert(!empty($manifest['critical_css_file']) && (int) ($manifest['critical_bytes'] ?? 0) > 500, 'Critical CSS slice extracted cleanly for inline head render');
+        foreach (['app_css', 'reader_css', 'admin_css'] as $cssKey) {
+            $cssPath = APP_ROOT . '/' . ($manifest['files'][$cssKey]['path'] ?? '');
+            $cssRaw = is_file($cssPath) ? (string) file_get_contents($cssPath) : '';
+            t_assert($cssRaw !== '' && substr_count($cssRaw, '{') === substr_count($cssRaw, '}'), "Built CSS bundle {$cssKey} has balanced curly braces");
+        }
+        $critRaw = is_file(APP_ROOT . '/' . ($manifest['critical_css_file'] ?? '')) ? (string) file_get_contents(APP_ROOT . '/' . $manifest['critical_css_file']) : '';
+        $appCssRaw = (string) file_get_contents(APP_ROOT . '/' . $manifest['files']['app_css']['path']);
+        t_assert($critRaw !== '' && substr_count($critRaw, '{') === substr_count($critRaw, '}'), 'Built critical CSS bundle has balanced curly braces');
+        t_assert(str_contains($appCssRaw, '.bx-footer-links') && str_contains($appCssRaw, '.bx-pw-wrap'), 'Deferred CSS includes footer links and auth password wrapper');
     }
 
     t_assert(is_file(APP_ROOT . '/assets/fonts/hind-bn-400.woff2') && is_file(APP_ROOT . '/assets/fonts/hind-lat-400.woff2'), 'Subsetted WOFF2 webfonts exist on disk');
@@ -413,6 +455,21 @@ t_case('Core Web Vitals & Performance Layer', static function (): void {
 // 15. Indexing, Privacy-Friendly Analytics, SEO Health & Growth Tools
 // ----------------------------------------------------------------------------
 t_case('Indexing, Privacy Analytics, SEO Dashboard & Growth', static function (): void {
+    // Regression: fresh-DB cold key generation must persist cleanly across calls without cache-mismatch key rotation
+    $origKey = db_one("SELECT setting_value FROM settings WHERE setting_key = 'indexnow_key'")['setting_value'] ?? null;
+    db_exec("DELETE FROM settings WHERE setting_key = 'indexnow_key'");
+    site_setting_store_ref(true);
+    $freshKey = growth_indexnow_key(true);
+    $freshUrl = growth_indexnow_key_url();
+    t_assert(
+        (bool) preg_match('/^[a-f0-9]{32,64}$/i', $freshKey)
+        && str_ends_with($freshUrl, '/' . $freshKey . '.txt')
+        && site_setting('indexnow_key') === $freshKey,
+        'IndexNow key URL points to consistent hosted verification .txt route on fresh DB without cache drift'
+    );
+    if (is_string($origKey) && $origKey !== '') {
+        site_setting_set('indexnow_key', $origKey);
+    }
     $key = growth_indexnow_key();
     t_assert((bool) preg_match('/^[a-f0-9]{32,64}$/i', $key), 'IndexNow auto-generated verification key is 32+ hex chars');
     t_assert(str_ends_with(growth_indexnow_key_url(), '/' . $key . '.txt'), 'IndexNow key URL points to hosted verification .txt route');
@@ -475,6 +532,46 @@ t_case('Indexing, Privacy Analytics, SEO Dashboard & Growth', static function ()
     }
     t_assert(growth_newsletter_unsubscribe((string) $subRow['unsubscribe_token']) === true, 'Newsletter unsubscribe token deactivates subscriber');
     db_exec('DELETE FROM newsletter_subscribers WHERE email = ?', [$testEmail]);
+});
+
+// ----------------------------------------------------------------------------
+// 16. In-Book Reader Search (/api/reader-search): Min Length 2 & LIKE Escaping
+// ----------------------------------------------------------------------------
+t_case('In-Book Search (/api/reader-search) Escaping & Min Length', static function (): void {
+    $sfx = substr(bin2hex(random_bytes(3)), 0, 6);
+    $fid = 0;
+    $iid = 0;
+    try {
+        db_exec('INSERT INTO folders (slug, name_bn, name_en, is_active) VALUES (?, ?, ?, 1)', ["ut-rs-f-{$sfx}", 'রিডার ফোল্ডার', 'Reader Search Folder']);
+        $fid = (int) db()->lastInsertId();
+        db_exec('INSERT INTO items (folder_id, slug, title_bn, title_en, price, is_free, is_active) VALUES (?, ?, ?, ?, 0, 1, 1)', [$fid, "ut-rs-b-{$sfx}", 'সার্চ বই', 'Search Test Book']);
+        $iid = (int) db()->lastInsertId();
+
+        db_exec('INSERT INTO item_page_texts (item_id, page_num, is_staging, norm_text) VALUES (?, 1, 0, ?)', [$iid, '100% pure ai physics note ch_1 আর বই আছে']);
+        db_exec('INSERT INTO item_page_texts (item_id, page_num, is_staging, norm_text) VALUES (?, 2, 0, ?)', [$iid, 'ordinary syllabus overview chapter two']);
+
+        t_assert(PageServer::searchPages($iid, 'a') === [] && PageServer::searchPages($iid, 'ব') === [], 'Minimum query length (<2 chars) returns empty results for English and Bangla');
+        t_assert(PageServer::searchPages($iid, '%') === [] && PageServer::searchPages($iid, '_') === [], 'Single wildcard char (<2 chars) rejected');
+
+        $enTwo = PageServer::searchPages($iid, 'ai');
+        $bnTwo = PageServer::searchPages($iid, 'বই');
+        t_assert(count($enTwo) === 1 && (int) $enTwo[0]['page'] === 1, '2-char English query ("ai") succeeds and finds matching page');
+        t_assert(count($bnTwo) === 1 && (int) $bnTwo[0]['page'] === 1, '2-char Bangla query ("বই") succeeds and finds matching page');
+
+        $pctExact = PageServer::searchPages($iid, '100%');
+        $pctWild  = PageServer::searchPages($iid, '%%');
+        $undExact = PageServer::searchPages($iid, 'ch_1');
+        $undMiss  = PageServer::searchPages($iid, 'ch_9');
+        $undWild  = PageServer::searchPages($iid, '__');
+        t_assert(count($pctExact) === 1 && (int) $pctExact[0]['page'] === 1 && $pctWild === [], 'Percent (%) wildcards are escaped in reader search');
+        t_assert(count($undExact) === 1 && (int) $undExact[0]['page'] === 1 && $undMiss === [] && $undWild === [], 'Underscore (_) wildcards are escaped in reader search');
+    } finally {
+        if ($iid > 0) {
+            db_exec('DELETE FROM item_page_texts WHERE item_id = ?', [$iid]);
+            db_exec('DELETE FROM items WHERE id = ?', [$iid]);
+        }
+        if ($fid > 0) db_exec('DELETE FROM folders WHERE id = ?', [$fid]);
+    }
 });
 
 // ----------------------------------------------------------------------------

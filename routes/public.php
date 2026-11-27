@@ -7,9 +7,14 @@ if ($route === '/theme-custom.css') {
     $pri = sanitize_hex_color(site_setting('theme_primary_color', '#2B2F77'), '#2B2F77');
     $acc = sanitize_hex_color(site_setting('theme_accent_color', '#F4A62A'), '#F4A62A');
     $fonts = theme_font_stack_pair();
-    echo ":root {\n"
+    echo ":root:not([data-theme=\"dark\"]), [data-theme=\"light\"] {\n"
         . "    --primary: {$pri};\n"
         . "    --focus-ring: {$pri};\n"
+        . "    --accent: {$acc};\n"
+        . "    --font-sans: {$fonts['sans']};\n"
+        . "    --font-serif: {$fonts['serif']};\n"
+        . "}\n"
+        . "[data-theme=\"dark\"] {\n"
         . "    --accent: {$acc};\n"
         . "    --font-sans: {$fonts['sans']};\n"
         . "    --font-serif: {$fonts['serif']};\n"

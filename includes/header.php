@@ -162,7 +162,7 @@ $recentNotifs = $user
         <link rel="stylesheet" href="<?= e(perf_dist_asset_url('fonts_css', 'assets/css/fonts.css')) ?>">
         <link rel="stylesheet" href="<?= e(perf_dist_asset_url('app_css', 'assets/css/components.css')) ?>">
     </noscript>
-    <style id="bx-theme-overrides">:root,[data-theme="light"]{--primary:<?= $priColor ?>;--focus-ring:<?= $priColor ?>;--accent:<?= $accColor ?>;--font-sans:<?= $fontPair['sans'] ?>;--font-serif:<?= $fontPair['serif'] ?>;}[data-theme="dark"]{--accent:<?= $accColor ?>;--font-sans:<?= $fontPair['sans'] ?>;--font-serif:<?= $fontPair['serif'] ?>;}</style>
+    <style id="bx-theme-overrides">:root:not([data-theme="dark"]),[data-theme="light"]{--primary:<?= $priColor ?>;--focus-ring:<?= $priColor ?>;--accent:<?= $accColor ?>;--font-sans:<?= $fontPair['sans'] ?>;--font-serif:<?= $fontPair['serif'] ?>;}[data-theme="dark"]{--accent:<?= $accColor ?>;--font-sans:<?= $fontPair['sans'] ?>;--font-serif:<?= $fontPair['serif'] ?>;}</style>
     <?php if (!empty($jsonLdSchemas) && is_array($jsonLdSchemas)): ?>
         <?php foreach ($jsonLdSchemas as $schema): ?>
             <script type="application/ld+json"><?= json_encode($schema, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_INVALID_UTF8_SUBSTITUTE) ?></script>
@@ -175,7 +175,7 @@ $recentNotifs = $user
 <header class="bx-header">
     <div class="container bx-header-inner">
         <div style="display:flex;align-items:center;gap:10px;">
-            <button type="button" class="bx-pill-btn bx-mobile-toggle" data-drawer-open aria-label="Menu">
+            <button type="button" class="bx-pill-btn bx-pill-icon bx-mobile-toggle" data-drawer-open aria-label="Menu">
                 <?= icon('menu') ?>
             </button>
             <a class="bx-brand" href="<?= e(url('/')) ?>">
@@ -188,7 +188,7 @@ $recentNotifs = $user
             </a>
         </div>
 
-        <nav class="bx-nav" aria-label="Primary">
+        <nav class="bx-nav<?= $user ? ' is-logged' : '' ?>" aria-label="Primary">
             <a href="<?= e(url('/')) ?>" class="<?= $activeNav === 'home' ? 'active' : '' ?>"><?= e(t('nav_home')) ?></a>
             <a href="<?= e(url('/pdf')) ?>" class="<?= $activeNav === 'pdfs' ? 'active' : '' ?>"><?= e(t('nav_pdfs')) ?></a>
             <?php if ($user): ?>
@@ -198,7 +198,7 @@ $recentNotifs = $user
             <?php if ($shopEnabled): ?>
                 <a href="<?= e(url('/shop')) ?>" class="<?= $activeNav === 'shop' ? 'active' : '' ?>"><?= e(t('nav_shop')) ?></a>
             <?php endif; ?>
-            <a href="<?= e(url('/about')) ?>" class="<?= $activeNav === 'about' ? 'active' : '' ?>"><?= e(t('nav_about')) ?></a>
+            <a href="<?= e(url('/about')) ?>" class="bx-nav-about<?= $activeNav === 'about' ? ' active' : '' ?>"><?= e(t('nav_about')) ?></a>
             <a href="<?= e(url('/contact')) ?>" class="<?= $activeNav === 'contact' ? 'active' : '' ?>"><?= e(t('nav_contact')) ?></a>
         </nav>
 
@@ -210,7 +210,7 @@ $recentNotifs = $user
 
         <div class="bx-header-actions">
             <?php $hdrCartCount = shop_cart_count(); if ($shopEnabled || $hdrCartCount > 0): ?>
-                <button type="button" class="bx-pill-btn bx-notif-btn" id="bx-cart-toggle" aria-label="<?= e(t('nav_cart')) ?>" aria-expanded="false">
+                <button type="button" class="bx-pill-btn bx-pill-icon bx-notif-btn" id="bx-cart-toggle" aria-label="<?= e(t('nav_cart')) ?>" aria-expanded="false">
                     <?= icon('cart') ?>
                     <span class="bx-notif-badge" id="bx-hdr-cart-badge" data-cart-badge<?= $hdrCartCount > 0 ? '' : ' hidden' ?>><?= $hdrCartCount > 99 ? '99+' : (int) $hdrCartCount ?></span>
                 </button>
@@ -218,13 +218,13 @@ $recentNotifs = $user
             <a class="bx-pill-btn bx-lang-pill" href="<?= e($langUrl) ?>" title="Switch Language">
                 <?= icon('globe') ?> <span><?= e(t('lang_toggle_label')) ?></span>
             </a>
-            <button type="button" class="bx-pill-btn" data-theme-toggle aria-label="Toggle theme">
+            <button type="button" class="bx-pill-btn bx-pill-icon" data-theme-toggle aria-label="Toggle theme">
                 <span class="bx-theme-moon"><?= icon('moon') ?></span>
                 <span class="bx-theme-sun"><?= icon('sun') ?></span>
             </button>
             <?php if ($user): ?>
                 <div class="bx-notif-wrap">
-                    <button type="button" class="bx-pill-btn bx-notif-btn" id="bx-notif-btn" aria-label="<?= e(t('nav_notifications')) ?>" aria-expanded="false">
+                    <button type="button" class="bx-pill-btn bx-pill-icon bx-notif-btn" id="bx-notif-btn" aria-label="<?= e(t('nav_notifications')) ?>" aria-expanded="false">
                         <?= icon('bell') ?>
                         <span class="bx-notif-badge" id="bx-notif-badge"<?= $unreadNotifCount > 0 ? '' : ' hidden' ?>><?= $unreadNotifCount > 99 ? '99+' : (int) $unreadNotifCount ?></span>
                     </button>
@@ -257,7 +257,7 @@ $recentNotifs = $user
                 </div>
                 <a class="bx-btn bx-btn-outline bx-btn-sm" href="<?= e(url('/profile')) ?>" title="<?= e($user['name']) ?>"><?= icon('user') ?> <span class="bx-header-profile-label"><?= e($user['name']) ?></span></a>
             <?php else: ?>
-                <a class="bx-pill-btn bx-notif-btn" href="<?= e(url('/login?next=' . rawurlencode('/notifications'))) ?>" aria-label="<?= e(t('nav_notifications')) ?>" title="<?= e(t('nav_notifications')) ?>">
+                <a class="bx-pill-btn bx-pill-icon bx-notif-btn" href="<?= e(url('/login?next=' . rawurlencode('/notifications'))) ?>" aria-label="<?= e(t('nav_notifications')) ?>" title="<?= e(t('nav_notifications')) ?>">
                     <?= icon('bell') ?>
                 </a>
                 <a class="bx-btn bx-btn-primary bx-btn-sm" href="<?= e(url('/login')) ?>"><?= icon('user') ?> <span class="bx-header-profile-label"><?= e(t('nav_login')) ?></span></a>

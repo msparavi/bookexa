@@ -75,10 +75,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <span class="current"><?= e(t('nav_contact')) ?></span>
     </nav>
 
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:24px;margin-top:20px;">
+    <div class="bx-page-hero is-contact" style="margin-top:16px;margin-bottom:22px;">
+        <div class="bx-page-hero-copy">
+            <span class="bx-badge bx-badge-accent" style="margin-bottom:8px;"><?= icon('phone') ?> <?= $lang === 'bn' ? 'পাঠক সহায়তা ডেস্ক' : 'Reader Helpdesk' ?></span>
+            <h1 class="bx-display" style="font-size:clamp(1.5rem,3vw,2.1rem);margin:0 0 8px;"><?= e(t('contact_title')) ?></h1>
+            <p style="margin:0;opacity:0.92;"><?= e(t('contact_sub')) ?></p>
+        </div>
+        <div class="bx-page-hero-art">
+            <?= illustration_svg('contact') ?>
+        </div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:24px;">
         <div class="bx-card">
-            <h1 class="bx-h2" style="margin-bottom:8px;"><?= e(t('contact_title')) ?></h1>
-            <p class="bx-muted" style="margin:0 0 20px;"><?= e(t('contact_sub')) ?></p>
+            <h2 class="bx-h2" style="margin-bottom:14px;"><?= $lang === 'bn' ? 'যোগাযোগের মাধ্যম' : 'Direct Support Channels' ?></h2>
 
             <div style="display:flex;flex-direction:column;gap:14px;">
                 <div style="padding:14px;border-radius:12px;background:var(--bg-alt);">
@@ -100,7 +110,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
                 <div style="padding:14px;border-radius:12px;background:var(--bg-alt);">
                     <strong><?= $lang === 'bn' ? 'সম্পাদকীয় ও সংশোধনী যোগাযোগ' : 'Editorial &amp; Corrections' ?>:</strong><br>
-                    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;font-size:0.86rem;">
+                    <div class="bx-contact-policy-links">
                         <a href="<?= e(url('/editorial-policy')) ?>"><?= e(t('legal_editorial')) ?></a>
                         <a href="<?= e(url('/how-we-review')) ?>"><?= e(t('legal_review_policy')) ?></a>
                         <a href="<?= e(url('/corrections-policy')) ?>"><?= e(t('legal_corrections')) ?></a>

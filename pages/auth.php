@@ -187,7 +187,7 @@ $pwEyeSvg = '<svg class="bx-icon bx-pw-eye-open" viewBox="0 0 24 24" fill="none"
             <?php endif; ?>
         </div>
 
-        <aside class="bx-auth-aside" aria-label="<?= $lang === 'bn' ? 'বুকএক্সা সুবিধা' : 'Bookexa Highlights' ?>">
+        <aside class="bx-auth-aside is-auth-sanctuary" aria-label="<?= $lang === 'bn' ? 'বুকএক্সা সুবিধা' : 'Bookexa Highlights' ?>">
             <div class="bx-auth-illus" aria-hidden="true">
                 <svg viewBox="0 0 180 120" fill="none" xmlns="http://www.w3.org/2000/svg">
                     <rect x="20" y="24" width="64" height="78" rx="10" fill="rgba(251,246,236,0.22)" stroke="#F4A62A" stroke-width="2.5"/>

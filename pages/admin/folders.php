@@ -108,10 +108,10 @@ $renderTree = function (int $parentId, int $depth = 0) use (&$renderTree, $byPar
             . '<span class="bx-switch-dot"></span><span class="bx-switch-label">' . ($isActive ? ($lang === 'bn' ? 'সক্রিয়' : 'Active') : ($lang === 'bn' ? 'লুকানো' : 'Hidden')) . '</span>'
             . '</button></form>';
 
-        echo '<a href="' . e(url('/admin/folders?add_parent=' . $fid . '#folder-form-sheet')) . '" class="bx-btn bx-btn-ghost bx-tree-sub-btn" style="min-height:40px;padding:6px 10px;font-size:0.8rem;" title="' . e($lang === 'bn' ? 'এখানে সাব-ফোল্ডার যোগ করুন' : 'Add subfolder here') . '">+ ' . ($lang === 'bn' ? 'সাব' : 'Sub') . '</a>';
+        echo '<a href="' . e(url('/admin/folders?add_parent=' . $fid . '#folder-form-sheet')) . '" class="bx-btn bx-btn-ghost bx-tree-sub-btn" style="padding:8px 12px;font-size:0.9rem;" title="' . e($lang === 'bn' ? 'এখানে সাব-ফোল্ডার যোগ করুন' : 'Add subfolder here') . '">+ ' . ($lang === 'bn' ? 'সাব' : 'Sub') . '</a>';
 
         echo '<div class="bx-kebab-wrap">';
-        echo '<button type="button" class="bx-kebab-btn" data-kebab-toggle aria-label="Folder Actions" style="min-height:40px;">⋮</button>';
+        echo '<button type="button" class="bx-kebab-btn" data-kebab-toggle aria-label="Folder Actions">⋮</button>';
         echo '<div class="bx-kebab-menu">';
         echo '<a href="' . e(url('/admin/folders?edit=' . $fid . '#folder-form-sheet')) . '" class="bx-btn bx-btn-ghost">' . ($lang === 'bn' ? 'সম্পাদনা' : 'Edit') . '</a>';
         echo '<a href="' . e(url('/admin/folders?add_parent=' . $fid . '#folder-form-sheet')) . '" class="bx-btn bx-btn-ghost">+ ' . ($lang === 'bn' ? 'সাব-ফোল্ডার যোগ' : 'Add Subfolder Here') . '</a>';
@@ -140,13 +140,13 @@ $renderTree = function (int $parentId, int $depth = 0) use (&$renderTree, $byPar
 <section class="bx-card">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
         <div>
-            <h2 style="margin:0;font-size:1.12rem;font-family:var(--font-serif);"><?= $lang === 'bn' ? 'ফোল্ডার ট্রি' : 'Folder Hierarchy Tree' ?></h2>
+            <h1 style="margin:0;font-size:1.25rem;font-family:var(--font-serif);"><?= $lang === 'bn' ? 'ফোল্ডার ট্রি' : 'Folder Hierarchy Tree' ?></h1>
             <small style="color:var(--text-muted);"><?= $lang === 'bn' ? 'সাজাতে Reorder মোড চালু করুন অথবা ⋮ মেনু ব্যবহার করুন।' : 'Enable Reorder mode to drag, or open ⋮ menu to move up/down & edit.' ?></small>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
-            <button type="button" id="btn-toggle-reorder" class="bx-btn bx-btn-outline" data-reorder-toggle aria-pressed="false" style="padding:8px 12px;font-size:0.84rem;">⇅ <?= $lang === 'bn' ? 'রিঅর্ডার মোড' : 'Reorder' ?></button>
-            <button type="button" id="btn-expand-all" class="bx-btn bx-btn-ghost" style="padding:8px 12px;font-size:0.84rem;"><?= $lang === 'bn' ? 'সব খুলুন' : 'Expand All' ?></button>
-            <button type="button" id="btn-collapse-all" class="bx-btn bx-btn-ghost" style="padding:8px 12px;font-size:0.84rem;"><?= $lang === 'bn' ? 'সব গুটিয়ে নিন' : 'Collapse All' ?></button>
+            <button type="button" id="btn-toggle-reorder" class="bx-btn bx-btn-outline bx-btn-sm" data-reorder-toggle aria-pressed="false">⇅ <?= $lang === 'bn' ? 'রিঅর্ডার মোড' : 'Reorder' ?></button>
+            <button type="button" id="btn-expand-all" class="bx-btn bx-btn-ghost bx-btn-sm"><?= $lang === 'bn' ? 'সব খুলুন' : 'Expand All' ?></button>
+            <button type="button" id="btn-collapse-all" class="bx-btn bx-btn-ghost bx-btn-sm"><?= $lang === 'bn' ? 'সব গুটিয়ে নিন' : 'Collapse All' ?></button>
             <button type="button" class="bx-btn bx-btn-primary" data-open-sheet="folder-form-sheet">+ <?= $lang === 'bn' ? 'নতুন ফোল্ডার' : 'Create Folder' ?></button>
         </div>
     </div>

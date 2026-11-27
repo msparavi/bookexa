@@ -93,6 +93,18 @@
         if (e.target.closest('[data-print-btn]')) {
             window.print();
         }
+        const moreChipsBtn = e.target.closest('[data-chip-more-toggle]');
+        if (moreChipsBtn) {
+            const targetSel = moreChipsBtn.getAttribute('data-chip-more-toggle') || '';
+            const rowEl = targetSel ? document.querySelector(targetSel) : null;
+            if (rowEl) {
+                const expanded = rowEl.classList.toggle('is-expanded');
+                moreChipsBtn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+                const lbl = moreChipsBtn.getAttribute(expanded ? 'data-label-less' : 'data-label-more');
+                if (lbl) moreChipsBtn.textContent = lbl;
+            }
+            return;
+        }
     });
 
     function attach3dTilt(selector, innerSelector) {

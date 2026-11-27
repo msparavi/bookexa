@@ -62,6 +62,9 @@ jobs:
           ];
           EOF
 
+      - name: Validate fresh SQL schema (duplicate columns & InnoDB)
+        run: php tests/schema_check.php
+
       - name: Import fresh MySQL schema
         run: |
           mysql -h 127.0.0.1 -u root -proot_ci_password bookexa < database/bookexa.sql
@@ -72,3 +75,165 @@ jobs:
 
       - name: Run Automated Test Suite
         run: php tests/run.php
+
+  migration-idempotency-mysql8:
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: root_ci_password
+          MYSQL_DATABASE: bookexa_mig
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot_ci_password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, curl, gd, mbstring, fileinfo, openssl, zlib
+          tools: none
+
+      - name: Configure DB & test schema
+        run: |
+          mkdir -p storage/cache storage/pages storage/logs storage/backups storage/payment_proofs storage/demo uploads
+          php tests/schema_check.php
+          mysql -h 127.0.0.1 -u root -proot_ci_password bookexa_mig < database/bookexa.sql
+          cat > config/config.php << 'EOF'
+          <?php
+          return [
+              'app_name'    => 'Bookexa',
+              'app_version' => '2.4.0',
+              'app_env'     => 'local',
+              'timezone'    => 'Asia/Dhaka',
+              'base_url'    => 'http://localhost',
+              'base_path'   => '',
+              'db' => [
+                  'host'    => '127.0.0.1',
+                  'port'    => '3306',
+                  'name'    => 'bookexa_mig',
+                  'user'    => 'root',
+                  'pass'    => 'root_ci_password',
+                  'charset' => 'utf8mb4',
+              ],
+              'security' => [
+                  'app_secret' => 'ci_test_secret_bookexa_32_characters_minimum_entropy_key_01',
+              ],
+              'cdn' => ['enabled' => false],
+          ];
+          EOF
+
+      - name: Run all migrations twice on MySQL 8.0 (idempotency proof)
+        run: |
+          php -r '
+          require "includes/bootstrap.php";
+          $r1 = migration_run_pending();
+          if (empty($r1["ok"]) || (int) $r1["pending"] !== 0) {
+              fwrite(STDERR, "Pass 1 failed: " . json_encode($r1) . "\n");
+              exit(1);
+          }
+          foreach (array_keys(migration_discover_files()) as $ver) {
+              $res = migration_run_one($ver);
+              if (empty($res["ok"])) {
+                  fwrite(STDERR, "Re-run failed on {$ver}: " . json_encode($res) . "\n");
+                  exit(1);
+              }
+          }
+          $r2 = migration_run_pending();
+          if (empty($r2["ok"]) || (int) $r2["pending"] !== 0) {
+              fwrite(STDERR, "Pass 2 failed: " . json_encode($r2) . "\n");
+              exit(1);
+          }
+          echo "MySQL 8.0 migration idempotency OK (" . count($r1["applied"]) . " applied, 0 errors on re-run)\n";
+          '
+
+  migration-idempotency-mariadb106:
+    runs-on: ubuntu-latest
+
+    services:
+      mariadb:
+        image: mariadb:10.6
+        env:
+          MARIADB_ROOT_PASSWORD: root_ci_password
+          MARIADB_DATABASE: bookexa_mig
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -proot_ci_password"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup PHP 8.2
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+          extensions: pdo_mysql, curl, gd, mbstring, fileinfo, openssl, zlib
+          tools: none
+
+      - name: Configure DB & test schema
+        run: |
+          mkdir -p storage/cache storage/pages storage/logs storage/backups storage/payment_proofs storage/demo uploads
+          php tests/schema_check.php
+          mysql -h 127.0.0.1 -u root -proot_ci_password bookexa_mig < database/bookexa.sql
+          cat > config/config.php << 'EOF'
+          <?php
+          return [
+              'app_name'    => 'Bookexa',
+              'app_version' => '2.4.0',
+              'app_env'     => 'local',
+              'timezone'    => 'Asia/Dhaka',
+              'base_url'    => 'http://localhost',
+              'base_path'   => '',
+              'db' => [
+                  'host'    => '127.0.0.1',
+                  'port'    => '3306',
+                  'name'    => 'bookexa_mig',
+                  'user'    => 'root',
+                  'pass'    => 'root_ci_password',
+                  'charset' => 'utf8mb4',
+              ],
+              'security' => [
+                  'app_secret' => 'ci_test_secret_bookexa_32_characters_minimum_entropy_key_01',
+              ],
+              'cdn' => ['enabled' => false],
+          ];
+          EOF
+
+      - name: Run all migrations twice on MariaDB 10.6 (idempotency proof)
+        run: |
+          php -r '
+          require "includes/bootstrap.php";
+          $r1 = migration_run_pending();
+          if (empty($r1["ok"]) || (int) $r1["pending"] !== 0) {
+              fwrite(STDERR, "Pass 1 failed: " . json_encode($r1) . "\n");
+              exit(1);
+          }
+          foreach (array_keys(migration_discover_files()) as $ver) {
+              $res = migration_run_one($ver);
+              if (empty($res["ok"])) {
+                  fwrite(STDERR, "Re-run failed on {$ver}: " . json_encode($res) . "\n");
+                  exit(1);
+              }
+          }
+          $r2 = migration_run_pending();
+          if (empty($r2["ok"]) || (int) $r2["pending"] !== 0) {
+              fwrite(STDERR, "Pass 2 failed: " . json_encode($r2) . "\n");
+              exit(1);
+          }
+          echo "MariaDB 10.6 migration idempotency OK (" . count($r1["applied"]) . " applied, 0 errors on re-run)\n";
+          '

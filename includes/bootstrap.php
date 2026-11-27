@@ -60,6 +60,8 @@ if ($cfgBasePath !== '') {
     if ($basePath === '/') {
         $basePath = '';
     }
+} elseif (PHP_SAPI === 'cli') {
+    $basePath = '';
 } else {
     $scriptDir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
     $basePath = ($scriptDir === '/' || $scriptDir === '.' || $scriptDir === '\\') ? '' : rtrim($scriptDir, '/');

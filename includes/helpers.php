@@ -334,9 +334,13 @@ function slugify(string $text): string
     return $text !== '' ? $text : ('item-' . substr(bin2hex(random_bytes(4)), 0, 6));
 }
 
-function site_setting(string $key, string $default = ''): string
+function site_setting_store_ref(bool $reset = false): array
 {
     static $cache = null;
+    if ($reset) {
+        $cache = null;
+        return [];
+    }
     if ($cache === null) {
         $cache = [];
         try {
@@ -347,7 +351,25 @@ function site_setting(string $key, string $default = ''): string
         } catch (Throwable $e) {
         }
     }
+    return $cache;
+}
+
+function site_setting(string $key, string $default = '', bool $refresh = false): string
+{
+    if ($refresh) {
+        site_setting_store_ref(true);
+    }
+    $cache = site_setting_store_ref(false);
     return ($cache[$key] ?? '') !== '' ? $cache[$key] : $default;
+}
+
+function site_setting_set(string $key, string $value): void
+{
+    db_exec(
+        'INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
+        [$key, $value]
+    );
+    site_setting_store_ref(true);
 }
 
 function published_window_sql(string $alias = ''): string

@@ -38,19 +38,22 @@ $buildShopUrl = static function (array $ov = []) use ($selectedCat, $q, $sort, $
         <?php endforeach; endif; ?>
     </nav>
 
-    <div class="bx-section-head" style="margin-top:16px;">
-        <div>
-            <span class="bx-badge bx-badge-teal" style="margin-bottom:8px;"><?= icon('truck') ?> <?= e(t('shop_badge')) ?></span>
-            <h1 class="bx-display" style="font-size:clamp(1.5rem,3vw,2.1rem);"><?= e(t('shop_title')) ?></h1>
-            <p><?= e(t('shop_sub')) ?></p>
+    <div class="bx-page-hero is-shop" style="margin-top:16px;">
+        <div class="bx-page-hero-copy">
+            <span class="bx-badge bx-badge-gold" style="margin-bottom:8px;"><?= icon('truck') ?> <?= e(t('shop_badge')) ?></span>
+            <h1 class="bx-display" style="font-size:clamp(1.5rem,3vw,2.15rem);margin:0 0 8px;"><?= e(t('shop_title')) ?></h1>
+            <p style="margin:0 0 14px;opacity:0.92;"><?= e(t('shop_sub')) ?></p>
+            <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                <a href="<?= e(url('/shop/track')) ?>" class="bx-btn bx-btn-hero-ghost bx-btn-sm">
+                    <?= icon('package') ?> <?= e(t('nav_track_order')) ?>
+                </a>
+                <a href="<?= e(url('/cart')) ?>" class="bx-btn bx-btn-accent bx-btn-sm">
+                    <?= icon('cart') ?> <?= e(t('nav_cart')) ?> (<span data-cart-badge><?= (int) shop_cart_count() ?></span>)
+                </a>
+            </div>
         </div>
-        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-            <a href="<?= e(url('/shop/track')) ?>" class="bx-btn bx-btn-outline bx-btn-sm">
-                <?= icon('package') ?> <?= e(t('nav_track_order')) ?>
-            </a>
-            <a href="<?= e(url('/cart')) ?>" class="bx-btn bx-btn-primary bx-btn-sm">
-                <?= icon('cart') ?> <?= e(t('nav_cart')) ?> (<span data-cart-badge><?= (int) shop_cart_count() ?></span>)
-            </a>
+        <div class="bx-page-hero-art">
+            <?= illustration_svg('shop') ?>
         </div>
     </div>
 
@@ -146,12 +149,12 @@ $buildShopUrl = static function (array $ov = []) use ($selectedCat, $q, $sort, $
                             <?= icon('heart') ?>
                         </button>
                         <div class="bx-book-body">
-                            <a href="<?= e($prodUrl) ?>" class="bx-book-title"><?= e(bi($p, 'title')) ?></a>
+                            <a href="<?= e($prodUrl) ?>" class="bx-book-title bx-book-title-link"><?= e(bi($p, 'title')) ?></a>
                             <?php $author = bi($p, 'author'); if ($author !== ''): ?>
                                 <div class="bx-book-author"><?= e($author) ?></div>
                             <?php endif; ?>
                             <?php if ((int) ($p['rating_count'] ?? 0) > 0): ?>
-                                <div style="font-size:0.8rem;color:var(--gold);font-weight:700;margin-top:2px;">
+                                <div class="bx-card-rating" style="margin-left:0;margin-top:4px;">
                                     ★ <?= number_format((float) $p['rating_avg'], 1) ?>
                                     <span class="bx-muted">(<?= e(num_localize((int) $p['rating_count'])) ?>)</span>
                                 </div>

@@ -52,7 +52,7 @@ $currQuery['lang'] = $altLang;
 $langSwitchHref = strtok($_SERVER['REQUEST_URI'] ?? '', '?') . '?' . http_build_query($currQuery);
 ?>
 <!DOCTYPE html>
-<html lang="<?= e($lang) ?>" data-theme="light">
+<html lang="<?= e($lang) ?>" data-theme="light" class="bx-admin-page">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
@@ -65,6 +65,7 @@ $langSwitchHref = strtok($_SERVER['REQUEST_URI'] ?? '', '?') . '?' . http_build_
     <title><?= e($activeTitle) ?> — <?= e($siteName) ?> Admin</title>
     <link rel="manifest" href="<?= e(asset('manifest.webmanifest')) ?>">
     <link rel="icon" href="<?= e($faviconHref) ?>">
+    <link rel="stylesheet" href="<?= e(asset('assets/css/tokens.css')) ?>">
     <link rel="stylesheet" href="<?= e(perf_dist_asset_url('fonts_css', 'assets/css/fonts.css')) ?>">
     <link rel="stylesheet" href="<?= e(perf_dist_asset_url('app_css', 'assets/css/components.css')) ?>">
     <link rel="stylesheet" href="<?= e(perf_dist_asset_url('admin_css', 'assets/css/admin.css')) ?>">
@@ -86,7 +87,7 @@ $langSwitchHref = strtok($_SERVER['REQUEST_URI'] ?? '', '?') . '?' . http_build_
                     <small style="color:var(--text-muted);font-size:0.75rem;"><?= $lang === 'bn' ? 'অ্যাডমিন প্যানেল' : 'Control Panel' ?></small>
                 </span>
             </a>
-            <button type="button" class="bx-btn bx-btn-ghost bx-admin-drawer-close" data-admin-menu-close aria-label="Close drawer" style="padding:8px;">✕</button>
+            <button type="button" class="bx-btn bx-btn-ghost bx-admin-drawer-close" data-admin-menu-close aria-label="Close drawer" style="padding:10px;">✕</button>
         </div>
 
         <nav class="bx-admin-nav">
@@ -116,10 +117,10 @@ $langSwitchHref = strtok($_SERVER['REQUEST_URI'] ?? '', '?') . '?' . http_build_
     <div class="bx-admin-main">
         <header class="bx-admin-topbar">
             <div class="bx-admin-title-bar">
-                <button type="button" class="bx-btn bx-btn-ghost bx-admin-mobile-toggle" data-admin-menu-open aria-expanded="false" aria-label="Menu" style="padding:8px 10px;">
+                <button type="button" class="bx-btn bx-btn-ghost bx-admin-mobile-toggle" data-admin-menu-open aria-expanded="false" aria-label="Menu" style="padding:10px;">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
                 </button>
-                <button type="button" class="bx-btn bx-btn-ghost bx-collapse-desktop" data-sidebar-collapse aria-label="Toggle sidebar" style="padding:8px 10px;">
+                <button type="button" class="bx-btn bx-btn-ghost bx-collapse-desktop" data-sidebar-collapse aria-label="Toggle sidebar" style="padding:10px;">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
                 </button>
                 <h1><?= e($activeTitle) ?></h1>
@@ -133,7 +134,7 @@ $langSwitchHref = strtok($_SERVER['REQUEST_URI'] ?? '', '?') . '?' . http_build_
             <?php endif; ?>
 
             <div class="bx-admin-topbar-actions">
-                <button type="button" class="bx-btn bx-btn-ghost bx-mobile-search-btn" data-topbar-search-toggle aria-label="Search" style="padding:8px;">
+                <button type="button" class="bx-btn bx-btn-ghost bx-mobile-search-btn" data-topbar-search-toggle aria-label="Search" style="padding:10px;">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 </button>
                 <?php if (admin_can($admin, 'system-health') || ($admin['role'] ?? '') === 'superadmin'): ?>
@@ -141,15 +142,15 @@ $langSwitchHref = strtok($_SERVER['REQUEST_URI'] ?? '', '?') . '?' . http_build_
                     <?= csrf_field() ?>
                     <input type="hidden" name="action" value="clean_cache">
                     <input type="hidden" name="_return" value="<?= e((string) ($_SERVER['REQUEST_URI'] ?? '/admin')) ?>">
-                    <button type="submit" class="bx-btn bx-btn-outline" style="padding:6px 10px;font-size:0.8rem;min-height:36px;" title="<?= e($lang === 'bn' ? 'পেজ ও সাইটম্যাপ ক্যাশ পরিষ্কার করুন' : 'Clear full-page & sitemap cache') ?>">
+                    <button type="submit" class="bx-btn bx-btn-outline bx-btn-sm" title="<?= e($lang === 'bn' ? 'পেজ ও সাইটম্যাপ ক্যাশ পরিষ্কার করুন' : 'Clear full-page & sitemap cache') ?>">
                         <?= $lang === 'bn' ? 'ক্যাশ মুছুন' : 'Clear cache' ?>
                     </button>
                 </form>
                 <?php endif; ?>
-                <a href="<?= e($langSwitchHref) ?>" class="bx-btn bx-btn-ghost" style="padding:8px 10px;font-size:0.84rem;">
+                <a href="<?= e($langSwitchHref) ?>" class="bx-btn bx-btn-ghost bx-btn-sm">
                     <?= $lang === 'bn' ? 'EN' : 'বাং' ?>
                 </a>
-                <button type="button" class="bx-btn bx-btn-ghost" data-theme-toggle aria-label="Toggle theme" style="padding:8px 10px;">
+                <button type="button" class="bx-btn bx-btn-ghost" data-theme-toggle aria-label="Toggle theme" style="padding:10px;">
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/></svg>
                 </button>
 
@@ -166,22 +167,22 @@ $langSwitchHref = strtok($_SERVER['REQUEST_URI'] ?? '', '?') . '?' . http_build_
                             <small style="display:block;color:var(--text-muted);font-size:0.78rem;word-break:break-all;"><?= e($admin['email']) ?></small>
                             <span class="bx-status-pill st-active" style="margin-top:6px;"><?= e($admin['role']) ?></span>
                         </div>
-                        <a href="<?= e(url('/admin/account-security')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;padding:7px 10px;font-size:0.86rem;">
+                        <a href="<?= e(url('/admin/account-security')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;min-height:44px;font-size:0.9375rem;">
                             <?= $lang === 'bn' ? 'পাসওয়ার্ড ও ২এফএ নিরাপত্তা' : 'Security & 2FA' ?>
                         </a>
                         <?php if (admin_can($admin, 'settings')): ?>
-                            <a href="<?= e(url('/admin/settings')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;padding:7px 10px;font-size:0.86rem;">
+                            <a href="<?= e(url('/admin/settings')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;min-height:44px;font-size:0.9375rem;">
                                 <?= $lang === 'bn' ? 'সাইট সেটিংস' : 'Site Settings' ?>
                             </a>
                         <?php endif; ?>
                         <?php if (admin_can($admin, 'admins')): ?>
-                            <a href="<?= e(url('/admin/admins')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;padding:7px 10px;font-size:0.86rem;">
+                            <a href="<?= e(url('/admin/admins')) ?>" class="bx-btn bx-btn-ghost" style="width:100%;justify-content:flex-start;min-height:44px;font-size:0.9375rem;">
                                 <?= $lang === 'bn' ? 'অ্যাডমিন অ্যাকাউন্ট' : 'Admin Accounts' ?>
                             </a>
                         <?php endif; ?>
                         <form action="<?= e(url('/admin/logout')) ?>" method="post" style="margin-top:6px;">
                             <?= csrf_field() ?>
-                            <button type="submit" class="bx-btn bx-btn-outline" style="width:100%;padding:7px 10px;font-size:0.86rem;color:var(--rose-text);border-color:var(--rose-text);">
+                            <button type="submit" class="bx-btn bx-btn-outline" style="width:100%;min-height:44px;font-size:0.9375rem;color:var(--rose-text);border-color:var(--rose-text);">
                                 <?= $lang === 'bn' ? 'লগআউট' : 'Sign Out' ?>
                             </button>
                         </form>

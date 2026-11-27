@@ -158,6 +158,13 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
 }
 .bx-stat-label { font-size: 0.82rem; color: var(--text-muted); font-weight: 600; }
 .bx-stat-num { font-family: var(--font-serif); font-size: clamp(1.32rem, 2.8vw, 1.78rem); font-weight: 700; margin-top: 4px; color: var(--primary); }
+.bx-admin-inline-link {
+    display: inline-flex; align-items: center; min-height: 44px; padding: 6px 12px;
+    border-radius: 10px; font-weight: 700; font-size: 0.9375rem; color: var(--primary);
+    text-decoration: none; transition: background-color 0.16s, transform 0.14s var(--ease-spring);
+}
+.bx-admin-inline-link:hover { background: var(--bg-alt); text-decoration: underline; }
+.bx-admin-inline-link:active { transform: scale(0.96); }
 
 .bx-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); gap: clamp(14px, 2.5vw, 18px); }
 .bx-grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 14px; }
@@ -170,8 +177,8 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
 .bx-chart-bar:hover { opacity: 0.82; }
 .bx-chart-range-tabs { display: inline-flex; gap: 4px; padding: 3px; border-radius: 12px; background: var(--bg-alt); border: 1px solid var(--border); }
 .bx-chart-range-btn {
-    min-height: 40px; padding: 6px 12px; border: none; border-radius: 10px;
-    background: transparent; color: var(--text-muted); font-size: 0.8rem; font-weight: 700; cursor: pointer;
+    min-height: 44px; min-width: 44px; padding: 8px 14px; border: none; border-radius: 10px;
+    background: transparent; color: var(--text-muted); font-size: 0.9375rem; font-weight: 600; cursor: pointer;
 }
 .bx-chart-range-btn.active {
     background: var(--grad-indigo-teal); color: #FFFFFF;
@@ -246,7 +253,7 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
 }
 .bx-drag-handle {
     display: none; align-items: center; justify-content: center;
-    min-width: 34px; min-height: 40px; padding: 0 4px; border-radius: 9px;
+    min-width: 44px; min-height: 44px; padding: 0 6px; border-radius: 9px;
     border: 1px dashed var(--input-border); background: var(--surface);
     color: var(--text-muted); cursor: grab; touch-action: none; flex-shrink: 0;
     font-weight: 700; font-size: 0.95rem;
@@ -258,13 +265,13 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
 .bx-tree-line-1 { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1 1 0; }
 .bx-tree-line-2 { display: flex; align-items: center; justify-content: flex-end; gap: 10px; min-width: 0; flex: 0 1 auto; }
 .bx-tree-toggle {
-    min-width: 40px; min-height: 40px; border-radius: 10px; border: 1px solid var(--input-border);
+    min-width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--input-border);
     background: var(--surface); color: var(--text); font-size: 1.1rem;
     display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
     transition: transform 0.2s ease; flex-shrink: 0;
 }
 .bx-tree-node:not(.is-collapsed) > .bx-tree-row .bx-tree-toggle { transform: rotate(90deg); }
-.bx-tree-spacer { width: 40px; display: inline-block; flex-shrink: 0; }
+.bx-tree-spacer { width: 44px; display: inline-block; flex-shrink: 0; }
 .bx-tree-thumb { width: 32px; height: 32px; border-radius: 8px; object-fit: cover; border: 1px solid var(--border); background: var(--bg-alt); flex-shrink: 0; }
 .bx-tree-title-wrap { flex: 1 1 0; min-width: 0; }
 .bx-tree-bn {
@@ -286,17 +293,17 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
     padding: 3px 7px; border-radius: 999px; background: var(--bg-alt); color: var(--text);
     border: 1px solid var(--border);
 }
-.bx-row-icon-actions { display: inline-flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 6px; }
+.bx-row-icon-actions { display: inline-flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 8px; }
 .bx-icon-btn {
-    width: 40px; height: 40px; min-width: 40px; min-height: 40px;
+    width: 44px; height: 44px; min-width: 44px; min-height: 44px;
     padding: 0 !important; display: inline-flex; align-items: center; justify-content: center;
     border-radius: 10px; flex-shrink: 0;
 }
 .bx-switch-btn {
     display: inline-flex; align-items: center; gap: 6px;
-    min-width: 44px; min-height: 40px; padding: 5px 10px; border-radius: 999px;
+    min-width: 44px; min-height: 44px; padding: 8px 12px; border-radius: 999px;
     border: 1.5px solid var(--input-border); background: var(--bg-alt); color: var(--text-muted);
-    font-size: 12px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+    font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; flex-shrink: 0;
 }
 .bx-switch-btn .bx-switch-dot {
     width: 10px; height: 10px; border-radius: 999px; background: var(--text-muted); flex-shrink: 0;
@@ -305,7 +312,7 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
     border-color: var(--teal-text); background: rgba(20, 184, 166, 0.16); color: var(--teal-text);
 }
 .bx-switch-btn.is-on .bx-switch-dot { background: var(--teal-text); }
-.bx-tree-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.bx-tree-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 
 .bx-inline-edit { border: 1px dashed transparent; padding: 2px 5px; border-radius: 6px; cursor: text; }
 .bx-inline-edit:hover { border-color: var(--primary); background: var(--surface); }
@@ -487,10 +494,10 @@ body.bx-admin-drawer-open { overflow: hidden; touch-action: none; }
     .bx-tree-line-1 { gap: 6px; width: 100%; }
     .bx-tree-line-2 { width: 100%; justify-content: space-between; gap: 6px; }
     .bx-tree-en { flex: 1 1 0; min-width: 0; max-width: none; }
-    .bx-tree-spacer { width: 28px; }
+    .bx-tree-spacer { width: 44px; }
     .bx-tree-thumb { width: 28px; height: 28px; }
     .bx-tree-sub-btn { display: none; }
-    .bx-switch-btn { min-width: 40px; padding: 4px 8px; justify-content: center; }
+    .bx-switch-btn { min-width: 56px; min-height: 44px; padding: 8px 10px; justify-content: center; }
     .bx-switch-btn .bx-switch-label { display: none; }
     .bx-sticky-form-actions {
         position: sticky; bottom: 0; z-index: var(--az-sticky-bar);

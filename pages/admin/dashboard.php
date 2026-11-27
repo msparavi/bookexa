@@ -77,6 +77,7 @@ $recentOrders = db_all(
 );
 ?>
 
+<h1 class="bx-h2" style="margin:0 0 14px;"><?= $lang === 'bn' ? 'অ্যাডমিন ড্যাশবোর্ড' : 'Admin Dashboard' ?></h1>
 <div class="bx-admin-stats">
     <div class="bx-stat-card">
         <div class="bx-stat-label"><?= $lang === 'bn' ? 'মোট ব্যবহারকারী' : 'Total Users' ?></div>
@@ -169,7 +170,7 @@ $recentOrders = db_all(
             <h2 style="margin:0;font-size:1.08rem;font-family:var(--font-serif);"><?= $lang === 'bn' ? 'অপেক্ষমাণ অর্ডার (দ্রুত যাচাই)' : 'Pending Orders Queue' ?></h2>
             <span class="bx-status-pill st-pending"><?= count($pendingOrders) ?></span>
         </div>
-        <a href="<?= e(url('/admin/orders?status=pending')) ?>" style="font-size:0.86rem;color:var(--primary);font-weight:700;"><?= $lang === 'bn' ? 'সব পেন্ডিং অর্ডার →' : 'View Queue →' ?></a>
+        <a href="<?= e(url('/admin/orders?status=pending')) ?>" class="bx-admin-inline-link"><?= $lang === 'bn' ? 'সব পেন্ডিং অর্ডার →' : 'View Queue →' ?></a>
     </div>
     <?php if (!$pendingOrders): ?>
         <div class="bx-chart-empty" style="min-height:92px;">
@@ -232,7 +233,7 @@ $recentOrders = db_all(
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
             <h2 style="margin:0;font-size:1.05rem;font-family:var(--font-serif);"><?= $lang === 'bn' ? 'সাম্প্রতিক অ্যাডমিন কার্যক্রম' : 'Recent Admin Activity' ?></h2>
             <?php if ($admin['role'] === 'superadmin'): ?>
-                <a href="<?= e(url('/admin/admins')) ?>" style="font-size:0.84rem;color:var(--primary);"><?= $lang === 'bn' ? 'সব দেখুন →' : 'Audit Log →' ?></a>
+                <a href="<?= e(url('/admin/admins')) ?>" class="bx-admin-inline-link"><?= $lang === 'bn' ? 'সব দেখুন →' : 'Audit Log →' ?></a>
             <?php endif; ?>
         </div>
         <?php if (!$recentAdminLogs): ?>
@@ -269,7 +270,7 @@ $recentOrders = db_all(
     <section class="bx-card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
             <h2 style="margin:0;font-size:1.05rem;font-family:var(--font-serif);"><?= $lang === 'bn' ? 'সাম্প্রতিক অর্ডার' : 'Recent Orders' ?></h2>
-            <a href="<?= e(url('/admin/orders')) ?>" style="font-size:0.84rem;color:var(--primary);"><?= $lang === 'bn' ? 'সব অর্ডার →' : 'All Orders →' ?></a>
+            <a href="<?= e(url('/admin/orders')) ?>" class="bx-admin-inline-link"><?= $lang === 'bn' ? 'সব অর্ডার →' : 'All Orders →' ?></a>
         </div>
         <?php if (!$recentOrders): ?>
             <p style="color:var(--text-muted);"><?= $lang === 'bn' ? 'কোনো অর্ডার নেই।' : 'No orders yet.' ?></p>

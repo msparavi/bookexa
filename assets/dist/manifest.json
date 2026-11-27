@@ -1,7 +1,7 @@
 {
-    "built_at": "2026-11-26T18:29:32+06:00",
-    "critical_css_file": "assets/dist/critical.493e128c.min.css",
-    "critical_bytes": 22054,
+    "built_at": "2026-11-27T10:30:28+06:00",
+    "critical_css_file": "assets/dist/critical.4180f9d6.min.css",
+    "critical_bytes": 28371,
     "font_preloads": {
         "bn": [
             "assets/fonts/hind-bn-400.woff2"
@@ -18,14 +18,14 @@
             "bytes": 2194
         },
         "app_css": {
-            "path": "assets/dist/app.79b53e61.min.css",
-            "hash": "79b53e61",
-            "bytes": 27825
+            "path": "assets/dist/app.42b0b9f0.min.css",
+            "hash": "42b0b9f0",
+            "bytes": 61737
         },
         "app_js": {
-            "path": "assets/dist/app.6085f70a.min.js",
-            "hash": "6085f70a",
-            "bytes": 49203
+            "path": "assets/dist/app.1eda5508.min.js",
+            "hash": "1eda5508",
+            "bytes": 49678
         },
         "theme_init_js": {
             "path": "assets/dist/theme-init.4dfe5ced.min.js",
@@ -43,9 +43,9 @@
             "bytes": 37477
         },
         "admin_css": {
-            "path": "assets/dist/admin.844dc396.min.css",
-            "hash": "844dc396",
-            "bytes": 21182
+            "path": "assets/dist/admin.71c09bdf.min.css",
+            "hash": "71c09bdf",
+            "bytes": 21607
         },
         "admin_js": {
             "path": "assets/dist/admin.69e30eaa.min.js",

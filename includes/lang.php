@@ -92,6 +92,7 @@ function get_default_language_strings(): array
         'legal_review_policy'  => ['bn' => 'বই পর্যালোচনা নীতি', 'en' => 'How We Review Books'],
         'legal_corrections'    => ['bn' => 'সংশোধনী নীতি', 'en' => 'Corrections Policy'],
         'nav_faq'              => ['bn' => 'প্রশ্নোত্তর (FAQ)', 'en' => 'FAQ'],
+        'share_book'           => ['bn' => 'শেয়ার করুন', 'en' => 'Share'],
     ];
 }
 

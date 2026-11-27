@@ -11,17 +11,19 @@ declare(strict_types=1);
 
 function growth_indexnow_key(bool $regenerate = false): string
 {
-    $curr = trim(site_setting('indexnow_key', ''));
+    static $memoKey = null;
+    if (!$regenerate && $memoKey !== null && preg_match('/^[a-f0-9]{16,64}$/i', $memoKey)) {
+        return $memoKey;
+    }
+    $curr = trim(site_setting('indexnow_key', '', $regenerate));
     if ($regenerate || !preg_match('/^[a-f0-9]{16,64}$/i', $curr)) {
         $curr = bin2hex(random_bytes(16));
         try {
-            db_exec(
-                'INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)',
-                ['indexnow_key', $curr]
-            );
+            site_setting_set('indexnow_key', $curr);
         } catch (Throwable $e) {
         }
     }
+    $memoKey = $curr;
     return $curr;
 }
 

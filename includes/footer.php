@@ -65,7 +65,7 @@ $socialLinks = array_filter($socialLinks, static fn(string $u): bool => trim($u)
             <?= bookexa_logo_svg('bx-logo-svg') ?>
             <span class="bx-muted">— <?= e($footerNote) ?></span>
         </div>
-        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:center;">
+        <div class="bx-footer-links">
             <?php foreach ($socialLinks as $sName => $sUrl): ?>
                 <a href="<?= e($sUrl) ?>" target="_blank" rel="noopener noreferrer"><?= e($sName) ?></a>
             <?php endforeach; ?>
@@ -97,11 +97,11 @@ $socialLinks = array_filter($socialLinks, static fn(string $u): bool => trim($u)
             <a href="<?= e(url('/copyright')) ?>"><?= e(t('legal_copyright')) ?></a>
             <a href="<?= e(url('/sitemap.xml')) ?>">Sitemap</a>
             <?php if (site_setting('cookie_banner_enabled', '1') === '1'): ?>
-                <button type="button" class="bx-btn bx-btn-ghost bx-btn-sm" id="bx-cookie-prefs-btn" style="padding:2px 8px;min-height:28px;font-size:0.82rem;">
+                <button type="button" class="bx-btn bx-btn-ghost bx-btn-sm" id="bx-cookie-prefs-btn">
                     <?= $fLang === 'bn' ? 'কুকি সেটিংস' : 'Cookie Preferences' ?>
                 </button>
             <?php endif; ?>
-            <span>© <?= e(num_localize(date('Y'))) ?> <?= e(site_setting('site_name', t('site_name'))) ?>. <?= e(t('footer_rights')) ?>.</span>
+            <span class="bx-footer-copy">© <?= e(num_localize(date('Y'))) ?> <?= e(site_setting('site_name', t('site_name'))) ?>. <?= e(t('footer_rights')) ?>.</span>
         </div>
     </div>
 </footer>

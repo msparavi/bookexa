@@ -233,7 +233,7 @@ $canonicalUrl = absolute_url_for_lang('/shop/' . rawurlencode((string) $product[
                                 <img src="<?= e($rcov) ?>" alt="<?= e(bi($rp, 'title')) ?>" width="300" height="450" loading="lazy">
                             </a>
                             <div class="bx-book-body">
-                                <a href="<?= e($rurl) ?>" class="bx-book-title"><?= e(bi($rp, 'title')) ?></a>
+                                <a href="<?= e($rurl) ?>" class="bx-book-title bx-book-title-link"><?= e(bi($rp, 'title')) ?></a>
                                 <div class="bx-book-foot">
                                     <span class="bx-price"><?= e(format_bdt($reff)) ?></span>
                                     <?php if ((int) $rp['stock'] > 0): ?>
